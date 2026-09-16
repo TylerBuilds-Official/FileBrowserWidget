@@ -1,0 +1,5 @@
+<RCC>
+    <qresource prefix="/assets">
+            <file>filter.ico</file>
+    </qresource>
+</RCC>
