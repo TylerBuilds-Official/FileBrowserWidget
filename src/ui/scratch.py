@@ -2,7 +2,7 @@ from pathlib import Path
 
 from src.ui.file_browser import FileBrowser
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QPoint
 from PyQt6.QtGui import QIcon, QAction
 from PyQt6.QtWidgets import (QMainWindow, QMenu,
                              QApplication, QSystemTrayIcon)
@@ -21,6 +21,8 @@ class ScratchApp(QApplication):
 
         # Imported Widgets
         self.file_browser = FileBrowser()
+        self.file_browser.setMinWidth(400)
+        self.file_browser.setMinHeight(600)
 
         icon_path = assets_dir / "filter.ico"
 
@@ -52,7 +54,7 @@ class ScratchApp(QApplication):
             self.file_browser.show()
             self.file_browser.raise_()
             self.file_browser.activateWindow()
-            self.file_browser.move(self.tray_icon.geometry().topLeft())
+            self.file_browser.move(self.tray_icon.geometry().topLeft() + QPoint(-250, -380))
             self.file_browser.create_list_items()
 
         if reason == QSystemTrayIcon.ActivationReason.Context:
