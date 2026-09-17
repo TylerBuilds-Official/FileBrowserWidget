@@ -1,5 +1,5 @@
 /*
- * Application stylesheet. Loaded by ScratchApp at startup; restart to reload.
+ * Application stylesheet. Loaded by ScratchApp at startup.
  * Qt stylesheets use CSS-like syntax. Layout margins and spacing live in Python.
  *
  * Starter palette (replace these values to customize the theme):
@@ -30,11 +30,86 @@ QWidget#fileList {
     background-color: transparent;
 }
 
-/* Every generated file label receives the same dynamic property. */
-QLabel[role="fileEntry"] {
+QWidget#fileEntry {
     background-color: #292f38;
+    border: none;
     border-radius: 4px;
+}
+
+QWidget#fileEntry:hover {
+    background-color: #3a414d;
+}
+
+QLabel#fileEntryName,
+QLabel#fileEntryIcon {
+    background-color: transparent;
+    border: none;
+    padding: 0;
+}
+
+QLabel#fileBrowserEmpty {
+    color: #8b95a5;
+    background-color: transparent;
+    padding: 12px 0;
+}
+
+QToolTip {
+    color: #e5e7eb;
+    background-color: #292f38;
+    border: 1px solid #3a414d;
     padding: 6px 8px;
+}
+
+#fileBrowserScrollArea {
+    border: none;
+}
+
+#fileBrowserScrollArea QScrollBar {
+    background: #20242b;
+    border: none;
+    margin: 0;
+}
+
+#fileBrowserScrollArea QScrollBar:vertical {
+    width: 10px;
+}
+
+#fileBrowserScrollArea QScrollBar:horizontal {
+    height: 10px;
+}
+
+#fileBrowserScrollArea QScrollBar::handle {
+    background: #3a414d;
+    border-radius: 4px;
+}
+
+#fileBrowserScrollArea QScrollBar::handle:vertical {
+    min-height: 24px;
+}
+
+#fileBrowserScrollArea QScrollBar::handle:horizontal {
+    min-width: 24px;
+}
+
+#fileBrowserScrollArea QScrollBar::handle:hover {
+    background: #8b95a5;
+}
+
+#fileBrowserScrollArea QScrollBar::handle:pressed {
+    background: #355b85;
+}
+
+#fileBrowserScrollArea QScrollBar::add-line,
+#fileBrowserScrollArea QScrollBar::sub-line {
+    width: 0;
+    height: 0;
+    border: none;
+    background: transparent;
+}
+
+#fileBrowserScrollArea QScrollBar::add-page,
+#fileBrowserScrollArea QScrollBar::sub-page {
+    background: transparent;
 }
 
 /* Tray context menu */
