@@ -1,0 +1,62 @@
+/*
+ * Application stylesheet. Loaded by ScratchApp at startup; restart to reload.
+ * Qt stylesheets use CSS-like syntax. Layout margins and spacing live in Python.
+ *
+ * Starter palette (replace these values to customize the theme):
+ *   Background: #20242b    File row: #292f38    Border: #3a414d
+ *   Text:       #e5e7eb    Muted:    #8b95a5    Selection: #355b85
+ */
+
+/* Shared defaults */
+QWidget {
+    font-family: "Segoe UI";
+    font-size: 10pt;
+    color: #e5e7eb;
+    background-color: #20242b;
+}
+
+/* Browser panel: object names are assigned in file_browser.py. */
+QWidget#fileBrowser {
+    border: 1px solid #3a414d;
+}
+
+QLabel#fileBrowserTitle {
+    font-size: 12pt;
+    font-weight: bold;
+    background-color: transparent;
+}
+
+QWidget#fileList {
+    background-color: transparent;
+}
+
+/* Every generated file label receives the same dynamic property. */
+QLabel[role="fileEntry"] {
+    background-color: #292f38;
+    border-radius: 4px;
+    padding: 6px 8px;
+}
+
+/* Tray context menu */
+QMenu {
+    border: 1px solid #3a414d;
+    padding: 4px;
+}
+
+QMenu::item {
+    padding: 6px 24px 6px 12px;
+}
+
+QMenu::item:selected {
+    background-color: #355b85;
+}
+
+QMenu::item:disabled {
+    color: #8b95a5;
+}
+
+QMenu::separator {
+    height: 1px;
+    background-color: #3a414d;
+    margin: 4px 8px;
+}

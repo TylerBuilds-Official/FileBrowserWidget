@@ -15,15 +15,20 @@ class ScratchApp(QApplication):
         # App Configs
         self.setQuitOnLastWindowClosed(False)
 
+        # Shared stylesheet, resolved independently of the working directory.
+        assets_dir = Path(__file__).resolve().parents[1] / "assets"
+        self.setStyleSheet((assets_dir / "styles.qss").read_text(encoding="utf-8"))
+
         # Imported Widgets
         self.file_browser = FileBrowser()
 
-        icon_path = Path(__file__).resolve().parents[1] / "assets" / "filter.ico"
+        icon_path = assets_dir / "filter.ico"
 
         # Tray Icon
         self.tray_icon = QSystemTrayIcon()
         self.tray_icon.setIcon(QIcon(str(icon_path)))
         self.tray_icon.show()
+        self.tray_icon.setToolTip("Scratch App")
 
         self.tray_icon.activated.connect(self.action_router)
 
@@ -48,6 +53,7 @@ class ScratchApp(QApplication):
             self.file_browser.raise_()
             self.file_browser.activateWindow()
             self.file_browser.move(self.tray_icon.geometry().topLeft())
+            self.file_browser.create_list_items()
 
         if reason == QSystemTrayIcon.ActivationReason.Context:
             print("Right Click")
