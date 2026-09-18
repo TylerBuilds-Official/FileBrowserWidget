@@ -12,7 +12,7 @@ QWidget {
     font-family: "Segoe UI";
     font-size: 10pt;
     color: #e5e7eb;
-    background-color: #20242b;
+    background-color: #1c1c1c;
 }
 
 /* Browser panel: object names are assigned in file_browser.py. */
@@ -65,13 +65,13 @@ QToolTip {
 }
 
 #fileBrowserScrollArea QScrollBar {
-    background: #20242b;
+    background: #1c1c1c;
     border: none;
     margin: 0;
 }
 
 #fileBrowserScrollArea QScrollBar:vertical {
-    width: 10px;
+    width: 2px;
 }
 
 #fileBrowserScrollArea QScrollBar:horizontal {
@@ -79,12 +79,12 @@ QToolTip {
 }
 
 #fileBrowserScrollArea QScrollBar::handle {
-    background: #3a414d;
-    border-radius: 4px;
+    background: #9b9b9b;
+    border-radius: 99px;
 }
 
 #fileBrowserScrollArea QScrollBar::handle:vertical {
-    min-height: 24px;
+    min-height: 64px;
 }
 
 #fileBrowserScrollArea QScrollBar::handle:horizontal {
@@ -92,7 +92,8 @@ QToolTip {
 }
 
 #fileBrowserScrollArea QScrollBar::handle:hover {
-    background: #8b95a5;
+    background: #a9a9a9;
+    width: 10px;
 }
 
 #fileBrowserScrollArea QScrollBar::handle:pressed {
