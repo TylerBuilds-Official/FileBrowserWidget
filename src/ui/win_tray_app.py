@@ -47,6 +47,10 @@ class WinTrayApp(QApplication):
         self.quit_action.triggered.connect(self.kill_app)
         self.menu.addAction(self.quit_action)
 
+        self.test_action = QAction(text="Test")
+        self.test_action.triggered.connect(self.test_func_connection)
+        self.menu.addAction(self.test_action)
+
         # add menu to tray
         self.tray_icon.setContextMenu(self.menu)
 
@@ -60,8 +64,12 @@ class WinTrayApp(QApplication):
             self.file_browser.show()
             self.file_browser.raise_()
             self.file_browser.activateWindow()
+            self.file_browser.settings_modal.hide_settings()
+
+
             #FIXME: Dynamic spacing off of a configurable docking location -- currently no conf or db to persist on
-            self.file_browser.move(self.tray_icon.geometry().topLeft() + QPoint(-220, -430))
+            popout_pos = self.ui_functions.get_popup_pos()
+            self.file_browser.move(popout_pos)
             self.file_browser.create_list_items()
 
         if reason == QSystemTrayIcon.ActivationReason.Context:
@@ -75,4 +83,8 @@ class WinTrayApp(QApplication):
 
     def open_file(self, signal):
         print("Opening file: ", signal)
-        FileOpener.open_file(Path(signal))
+        self.ui_functions.open_file(Path(signal))
+
+    def test_func_connection(self):
+        print("Test func called")
+        print(self.ui_functions.get_popup_pos())

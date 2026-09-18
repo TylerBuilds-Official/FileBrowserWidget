@@ -1,8 +1,10 @@
 from pathlib import Path
 
-from PyQt6.QtWidgets import QWidget, QScrollArea, QFileIconProvider, QHBoxLayout
-from PyQt6.QtCore import Qt, QFileInfo, pyqtSignal
+from PyQt6.QtWidgets import QWidget, QScrollArea, QFileIconProvider, QHBoxLayout, QPushButton
+from PyQt6.QtCore import Qt, QFileInfo, pyqtSignal, QEvent
 from PyQt6.QtWidgets import QVBoxLayout, QLabel
+from PyQt6.QtGui import QIcon, QPainter, QPixmap
+
 
 from src.ui.file_name_label import FileNameLabel
 from src.ui.custom_widgets.file_row_widget import FileRowWidget
@@ -17,6 +19,36 @@ class FileBrowser(QWidget):
         self.setObjectName("fileBrowser")
         # Allow the stylesheet to paint this custom QWidget's background/border.
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+
+        self.settings_modal = SettingsModal(self)
+        self.settings_modal.refresh_files.connect(self.refresh_files)
+
+        # --- move this whole block out --- #
+
+
+        assets_dir = Path(__file__).resolve().parents[1] / "assets"
+        settings_icon_path = assets_dir / "dots.png"
+        pixmap = QPixmap(str(settings_icon_path))
+        painter = QPainter(pixmap)
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
+        painter.fillRect(pixmap.rect(), Qt.GlobalColor.gray)
+        painter.end()
+
+        self.settings_icon = QIcon(pixmap)
+
+
+        settings_hover_icon = assets_dir / "dots.png"
+        h_pixmap = QPixmap(str(settings_hover_icon))
+        painter = QPainter(h_pixmap)
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
+        painter.fillRect(h_pixmap.rect(), Qt.GlobalColor.white)
+        painter.end()
+
+        self.settings_hover_icon = QIcon(h_pixmap)
+
+
+        # --- end ------------------------- #
+
 
         self.setWindowFlags(
             Qt.WindowType.Popup |
@@ -33,14 +65,22 @@ class FileBrowser(QWidget):
         self.scroll_area.setObjectName("fileBrowserScrollArea")
         self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
+        self.header_layout = QHBoxLayout()
+
         self.title_label = QLabel("Desktop")
         self.title_label.setObjectName("fileBrowserTitle")
 
-        layout.addWidget(self.title_label)
+        self.settings_button = QPushButton()
+        self.settings_button.setObjectName("fileBrowserSettingsButton")
+        self.settings_button.setIcon(self.settings_icon)
+        self.settings_button.installEventFilter(self)
+        self.settings_button.clicked.connect(self.show_settings_modal)
+
+        self.header_layout.addWidget(self.title_label)
+        self.header_layout.addWidget(self.settings_button)
+        layout.addLayout(self.header_layout)
+
         layout.addWidget(self.scroll_area)
-
-        settings = SettingsModal()
-
 
         self.file_list_layout = QVBoxLayout()
         self.file_list_layout.setContentsMargins(0, 0, 6, 0)
@@ -93,7 +133,10 @@ class FileBrowser(QWidget):
 
             file_icon  = self.icon_provider.icon(QFileInfo(str(file)))
             icon_label = QLabel()
-            file_label = FileNameLabel(file.name)
+
+            show_extension = self.settings_modal.show_extensions or file.is_dir()
+            display_name = file.name if show_extension else file.stem
+            file_label = FileNameLabel(display_name)
 
             icon_label.setObjectName("fileEntryIcon")
             icon_label.setFixedSize(20, 20)
@@ -119,3 +162,20 @@ class FileBrowser(QWidget):
 
     def setMinHeight(self, height: int):
         self.setMinimumHeight(height)
+
+    def eventFilter(self, watched, event):
+        if watched == self.settings_button:
+            if event.type() == QEvent.Type.Enter:
+                self.settings_button.setIcon(self.settings_hover_icon)
+            elif event.type() == QEvent.Type.Leave:
+                self.settings_button.setIcon(self.settings_icon)
+        return super().eventFilter(watched, event)
+
+    def show_settings_modal(self):
+        self.settings_modal.show_settings()
+
+    def hide_settings_modal(self):
+        self.settings_modal.hide_settings()
+
+    def refresh_files(self):
+        self.create_list_items()
