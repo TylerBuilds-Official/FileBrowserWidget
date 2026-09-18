@@ -26,6 +26,54 @@ QLabel#fileBrowserTitle {
     background-color: transparent;
 }
 
+QPushButton#fileBrowserSettingsButton {
+    max-width: 24px;
+    border: none;
+}
+
+QPushButton#fileBrowserSettingsButton:hover {
+
+}
+
+QWidget#settingsModal {
+    background-color: #20242b;
+    border: 1px solid #3a414d;
+    border-radius: 6px;
+}
+
+QLabel#settingsModalTitle {
+    color: #e5e7eb;
+    background-color: transparent;
+    font-size: 12pt;
+    font-weight: bold;
+    padding: 0 0 4px 0;
+}
+
+QCheckBox#settingsExtensionsCheck {
+    color: #e5e7eb;
+    background-color: #292f38;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    padding: 10px 8px;
+    spacing: 10px;
+}
+
+QCheckBox#settingsExtensionsCheck:hover {
+    background-color: #3a414d;
+}
+
+QCheckBox#settingsExtensionsCheck:focus {
+    border-color: #8b95a5;
+}
+
+QCheckBox#settingsExtensionsCheck:pressed {
+    background-color: #355b85;
+}
+
+QCheckBox#settingsExtensionsCheck:disabled {
+    color: #8b95a5;
+}
+
 QWidget#fileList {
     background-color: transparent;
 }
@@ -33,7 +81,8 @@ QWidget#fileList {
 QWidget#fileEntry {
     background-color: #292f38;
     border: none;
-    border-radius: 4px;
+    border-radius: 2px;
+    padding: 4px;
 }
 
 QWidget#fileEntry:hover {

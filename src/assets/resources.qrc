@@ -1,5 +1,6 @@
 <RCC>
     <qresource prefix="/assets">
             <file>filter.ico</file>
+            <file>dots.png</file>
     </qresource>
 </RCC>
