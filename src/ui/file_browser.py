@@ -1,12 +1,16 @@
 from pathlib import Path
 
 from PyQt6.QtWidgets import QWidget, QScrollArea, QFileIconProvider, QHBoxLayout
-from PyQt6.QtCore import Qt, QFileInfo
+from PyQt6.QtCore import Qt, QFileInfo, pyqtSignal
 from PyQt6.QtWidgets import QVBoxLayout, QLabel
 
 from src.ui.file_name_label import FileNameLabel
+from src.ui.custom_widgets.file_row_widget import FileRowWidget
+from src.ui.settings.settings_modal import SettingsModal
+
 
 class FileBrowser(QWidget):
+    program_clicked = pyqtSignal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent=parent)
@@ -35,6 +39,8 @@ class FileBrowser(QWidget):
         layout.addWidget(self.title_label)
         layout.addWidget(self.scroll_area)
 
+        settings = SettingsModal()
+
 
         self.file_list_layout = QVBoxLayout()
         self.file_list_layout.setContentsMargins(0, 0, 6, 0)
@@ -47,6 +53,8 @@ class FileBrowser(QWidget):
         self.file_list_widget.setLayout(self.file_list_layout)
 
         self.scroll_area.setWidget(self.file_list_widget)
+
+
 
 
     @staticmethod
@@ -72,11 +80,12 @@ class FileBrowser(QWidget):
             return
 
         for file in files:
-            file_row = QWidget()
+            file_row = FileRowWidget()
             file_row.setObjectName("fileEntry")
             file_row.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
             file_row.setFixedHeight(36)
             file_row.setToolTip(str(file))
+            file_row.clicked.connect(lambda file=file: self.emit_file(str(file)))
 
             file_layout = QHBoxLayout(file_row)
             file_layout.setContentsMargins(10, 0, 10, 0)
@@ -95,6 +104,9 @@ class FileBrowser(QWidget):
             file_layout.addWidget(file_label, 1)
             self.file_list_layout.addWidget(file_row)
 
+
+    def emit_file(self, file):
+        self.program_clicked.emit(file)
 
     def setMaxWidth(self, width: int):
         self.setMaximumWidth(width)

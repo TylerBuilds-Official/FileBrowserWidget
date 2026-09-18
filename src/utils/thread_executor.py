@@ -35,36 +35,8 @@ class ThreadExecutor(QObject):
     def run_task(self):
         try:
             self.thread.start()
+            self.thread.wait()
             self.started.emit(True)
         except Exception as e:
-            self.errors.emit([str(e)])
+            self.errors.emit([e])
             self.failed.emit(True)
-
-
-test_task = lambda: print("[TASK] Hello from thread")
-test_class = ThreadExecutor(task=test_task)
-
-
-def print_started():
-    print("[THREAD] Task started")
-
-
-def print_success():
-    print("[THREAD] Task completed successfully")
-
-
-def print_fail():
-    print("[THREAD] Task failed")
-
-
-def print_errors(errors: list):
-    print("[THREAD] Errors occurred during task execution:")
-    for error in errors:
-        print("———————— " + "[ThreadErrors]: " + error)
-
-test_class.started.connect(print_started)
-test_class.failed.connect(print_fail)
-test_class.errors.connect(print_errors)
-
-
-test_class.run_task()
