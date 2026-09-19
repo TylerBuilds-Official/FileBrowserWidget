@@ -136,7 +136,7 @@ class WinTrayApp(QApplication):
 
     def show_browser(self):
         self.file_browser.settings_modal.hide_settings(animated=False)
-        self.file_browser.create_list_items()
+        self.file_browser.ensure_loaded()
         self.file_browser.show()
         self.reposition_popup()
         self.file_browser.raise_()

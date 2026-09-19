@@ -1,3 +1,5 @@
+from src.ui.smooth_scroll import SmoothComboBox
+
 from PyQt6.QtWidgets import (QMenu, QWidget, QWidgetAction, QVBoxLayout, QHBoxLayout,
                             QLineEdit, QComboBox, QLabel, QPushButton)
 
@@ -17,10 +19,10 @@ class FilterMenu(QMenu):
         self.search_edit.setAccessibleName("Search this folder")
         self.search_edit.setClearButtonEnabled(True)
         layout.addWidget(self.search_edit)
-        self.filter_combo = QComboBox()
+        self.filter_combo = SmoothComboBox()
         self.filter_combo.setAccessibleName("Filter file types")
         self.filter_combo.addItem("All types", "all")
-        self.sort_combo = QComboBox()
+        self.sort_combo = SmoothComboBox()
         self.sort_combo.setAccessibleName("Sort files")
         for label, value in (("Name: A to Z", "name"), ("Name: Z to A", "name_desc"),
                              ("Newest first", "modified"), ("Largest first", "size"),

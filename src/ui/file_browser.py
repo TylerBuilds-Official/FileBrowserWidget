@@ -1,7 +1,8 @@
 from pathlib import Path
+from time import monotonic
 
 from PyQt6.QtWidgets import QWidget, QScrollArea, QHBoxLayout, QMenu, QPushButton, QStyle
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal, QFileSystemWatcher, QTimer
 from PyQt6.QtWidgets import QVBoxLayout, QLabel
 
 
@@ -9,13 +10,14 @@ from src.ui.custom_widgets.fluent_icon_button import FluentIconButton
 from src.ui.file_name_label import FileNameLabel
 from src.ui.breadcrumbs import Breadcrumbs
 from src.ui.filter_menu import FilterMenu
+from src.ui.smooth_scroll import SmoothScroll
 from src.utils.favorites import Favorites
 from src.utils.desktop_paths import DesktopPaths
 from src.ui.custom_widgets.file_row_widget import FileRowWidget
 from src.ui.settings.settings_modal import SettingsModal
 from src.ui.keyboard_handler import KeyboardHandler
 from src.utils.file_icons import FileIcons
-from src.utils.file_listing import describe_file, filter_options, visible_entries
+from src.utils.file_listing import FileEntry, describe_file, file_stamp, filter_options, visible_entries
 
 
 class FileBrowser(QWidget):
@@ -32,6 +34,23 @@ class FileBrowser(QWidget):
         self.preferences = settings
         self.entries = []
         self._icons = {}
+        self._rows = {}
+        self._entry_cache = {}
+        self._rendered_state = None
+        self._loaded = False
+        self._dirty = True
+        self._last_scan = 0
+        self.watcher = QFileSystemWatcher(self)
+        self.watcher.directoryChanged.connect(self.mark_dirty)
+        self.watcher.fileChanged.connect(self.mark_dirty)
+        self.refresh_timer = QTimer(self)
+        self.refresh_timer.setSingleShot(True)
+        self.refresh_timer.setInterval(200)
+        self.refresh_timer.timeout.connect(self.refresh_if_visible)
+        self.poll_timer = QTimer(self)
+        self.poll_timer.setInterval(30000)
+        self.poll_timer.timeout.connect(self.mark_dirty)
+        self.poll_timer.start()
         self.folder_history = []
         self.forward_history = []
         self.setObjectName("fileBrowser")
@@ -54,6 +73,7 @@ class FileBrowser(QWidget):
         layout.setSpacing(6)
 
         self.scroll_area = QScrollArea()
+        self.smooth_scroll = SmoothScroll(self.scroll_area)
         self.scroll_area.setWidgetResizable(True)
         self.scroll_area.setObjectName("fileBrowserScrollArea")
         self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -138,7 +158,7 @@ class FileBrowser(QWidget):
         self.scroll_area.setWidget(self.file_list_widget)
 
         self.settings_modal = SettingsModal(self, settings=settings)
-        self.settings_modal.refresh_files.connect(self.refresh_files)
+        self.settings_modal.refresh_files.connect(self.update_file_labels)
         self.settings_modal.opened.connect(lambda: self.content.setEnabled(False))
         self.settings_modal.closed.connect(self._settings_closed)
         self.keyboard_handler = KeyboardHandler(self)
@@ -154,7 +174,35 @@ class FileBrowser(QWidget):
         folder = Path(folder)
         return list(folder.iterdir())
 
-    def create_list_items(self, folder=None, scroll_position=None):
+    def ensure_loaded(self):
+        # A normal reopen does no filesystem or icon work.
+        if not self._loaded or self._dirty or monotonic() - self._last_scan >= 30:
+            self.create_list_items()
+
+    def mark_dirty(self, *_):
+        self._dirty = True
+        if self.isVisible():
+            self.refresh_timer.start()
+
+    def refresh_if_visible(self):
+        if self.isVisible() and self._dirty:
+            self.create_list_items()
+
+    def watch_folder(self):
+        sources = (self.desktop_paths.sources() if self.current_folder == self.desktop_paths.primary
+                   else [self.current_folder])
+        # Watching parents also catches a removed directory being recreated.
+        wanted = {str(path) for source in sources for path in (source, source.parent)}
+        current = set(self.watcher.directories()) | set(self.watcher.files())
+        if current - wanted:
+            self.watcher.removePaths(list(current - wanted))
+        for path in wanted - current:
+            self.watcher.addPath(path)
+
+    def update_file_labels(self):
+        self.render_entries(self.scroll_area.verticalScrollBar().value())
+
+    def create_list_items(self, folder=None, scroll_position=None, force=False):
         folder = Path(folder) if folder is not None else self.current_folder
         if scroll_position is None:
             scroll_position = self.scroll_area.verticalScrollBar().value() if folder == self.current_folder else 0
@@ -167,6 +215,10 @@ class FileBrowser(QWidget):
             else:
                 files, scan_errors = self.traverse_level(folder), []
         except OSError as error:
+            self._dirty = False
+            self._last_scan = monotonic()
+            self._loaded = True
+            self.watch_folder()
             self.status_label.setText("Could not open this folder.")
             self.status_label.setToolTip(str(error))
             return False
@@ -175,10 +227,31 @@ class FileBrowser(QWidget):
             self.search_edit.blockSignals(True)
             self.search_edit.clear()
             self.search_edit.blockSignals(False)
-        self.entries = [describe_file(file) for file in files]
+        entries = []
+        for file in files:
+            cached = self._entry_cache.get(file)
+            try:
+                info = file.stat()
+            except OSError as error:
+                # describe_file must not make a second attempt after stat fails.
+                entry = FileEntry(file, {"ext:" + file.suffix.lower()}, error=str(error))
+            else:
+                if not force and cached is not None and cached.stamp == file_stamp(info):
+                    entry = cached
+                else:
+                    entry = describe_file(file, info)
+            if force or cached != entry:
+                self._icons.pop(file, None)
+            entries.append(entry)
+        self.entries = entries
+        self._entry_cache = {entry.path: entry for entry in entries}
+        self._icons = {path: icon for path, icon in self._icons.items() if path in self._entry_cache}
+        self._dirty = False
+        self._loaded = True
+        self._last_scan = monotonic()
+        self.refresh_timer.stop()
         self._scan_errors = [f"{path}: {error}" for path, error in scan_errors]
         self._scan_errors.extend(f"{entry.path}: {entry.error}" for entry in self.entries if entry.error)
-        self._icons.clear()
         previous_filter = self.filter_combo.currentData()
         self.filter_combo.blockSignals(True)
         self.filter_combo.clear()
@@ -191,6 +264,9 @@ class FileBrowser(QWidget):
         self.title_label.setToolTip(str(folder))
         self.path_label.set_name(str(folder))
         self.path_label.setToolTip(str(folder))
+        self.watch_folder()
+        if force:
+            self._rendered_state = None
         self.render_entries(scroll_position)
         return True
 
@@ -243,74 +319,112 @@ class FileBrowser(QWidget):
         self.status_label.setText(text)
         self.status_label.setToolTip("\n".join(self._scan_errors))
 
+        state = (self.current_folder, tuple(self._entry_cache), tuple((entry.path, entry.stamp, entry.error, entry.online_only,
+                        self.favorites.contains(entry.path)) for entry in entries),
+                 self.settings_modal.show_extensions)
+        if state == self._rendered_state:
+            self.restore_scroll_position(scroll_position)
+            return True
+        self._rendered_state = state
+        focused = self.focusWidget()
         while self.file_list_layout.count():
-            item = self.file_list_layout.takeAt(0)
-            item.widget().hide()
-            item.widget().deleteLater()
+            widget = self.file_list_layout.takeAt(0).widget()
+            widget.hide()
+            if not isinstance(widget, FileRowWidget):
+                widget.deleteLater()
+        for path in list(self._rows):
+            if path not in self._entry_cache:
+                self._rows.pop(path).deleteLater()
 
         if not files:
             empty_label = QLabel("No matching files." if self.entries else "No files in this folder.")
             empty_label.setObjectName("fileBrowserEmpty")
             self.file_list_layout.addWidget(empty_label)
             empty_label.show()
-            self.restore_scroll_position(scroll_position)
-
-            return True
-
         for entry in entries:
-            file = entry.path
-            file_row = FileRowWidget()
-            self.keyboard_handler.register_row(file_row)
-            file_row.setObjectName("fileEntry")
-            file_row.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-            file_row.setFixedHeight(40)
-            file_row.setToolTip(str(file))
-            file_row.clicked.connect(lambda file=file: self.open_item(file))
-            file_row.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-            file_row.customContextMenuRequested.connect(
-                lambda pos, file=file, row=file_row: self.show_file_menu(file, row.mapToGlobal(pos))
-            )
-
-            file_layout = QHBoxLayout(file_row)
-            file_layout.setContentsMargins(10, 0, 10, 0)
-            file_layout.setSpacing(10)
-
-            if file not in self._icons:
-                if entry.online_only or entry.error:
-                    self._icons[file] = self.icon_provider.generic_icon("folders" in entry.kinds)
-                else:
-                    self._icons[file] = self.icon_provider.icon(file)
-            file_icon = self._icons[file]
-            icon_label = QLabel()
-
-            show_extension = self.settings_modal.show_extensions or "folders" in entry.kinds
-            display_name = file.name if show_extension else file.stem
-            file_label = FileNameLabel(display_name)
-
-            icon_label.setObjectName("fileEntryIcon")
-            icon_label.setFixedSize(20, 20)
-            icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            icon_label.setPixmap(file_icon.pixmap(16, 16))
-
-            file_layout.addWidget(icon_label)
-            file_layout.addWidget(file_label, 1)
-            star = QPushButton("★" if self.favorites.contains(file) else "☆")
-            star.setProperty("role", "iconButton")
-            star.setFixedSize(28, 28)
-            star.setCheckable(True)
-            star.setChecked(self.favorites.contains(file))
-            label = "Remove from favorites" if star.isChecked() else "Add to favorites"
-            star.setToolTip(label)
-            star.setAccessibleName(f"{label}: {file.name}")
-            star.clicked.connect(lambda checked=False, file=file: self.toggle_favorite(file))
-            file_layout.addWidget(star)
-            self.file_list_layout.addWidget(file_row)
-            file_row.show()
+            row = self._rows.get(entry.path)
+            if row is None:
+                row = self.create_file_row(entry)
+                self._rows[entry.path] = row
+            else:
+                self.update_file_row(row, entry)
+            self.file_list_layout.addWidget(row)
+            row.show()
+        if focused in self._rows.values() and not focused.isHidden():
+            focused.setFocus()
 
         self.restore_scroll_position(scroll_position)
         return True
 
+    def create_file_row(self, entry):
+        file = entry.path
+        file_row = FileRowWidget()
+        self.keyboard_handler.register_row(file_row)
+        file_row.setObjectName("fileEntry")
+        file_row.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        file_row.setFixedHeight(40)
+        file_row.setToolTip(str(file))
+        file_row.clicked.connect(lambda file=file: self.open_item(file))
+        file_row.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        file_row.customContextMenuRequested.connect(
+            lambda pos, file=file, row=file_row: self.show_file_menu(file, row.mapToGlobal(pos))
+        )
+
+        file_layout = QHBoxLayout(file_row)
+        file_layout.setContentsMargins(10, 0, 10, 0)
+        file_layout.setSpacing(10)
+
+        if file not in self._icons:
+            if entry.online_only or entry.error:
+                self._icons[file] = self.icon_provider.generic_icon("folders" in entry.kinds)
+            else:
+                self._icons[file] = self.icon_provider.icon(file)
+        file_icon = self._icons[file]
+        icon_label = QLabel()
+
+        show_extension = self.settings_modal.show_extensions or "folders" in entry.kinds
+        display_name = file.name if show_extension else file.stem
+        file_label = FileNameLabel(display_name)
+
+        icon_label.setObjectName("fileEntryIcon")
+        icon_label.setFixedSize(20, 20)
+        icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        icon_label.setPixmap(file_icon.pixmap(16, 16))
+
+        file_layout.addWidget(icon_label)
+        file_layout.addWidget(file_label, 1)
+        star = QPushButton("★" if self.favorites.contains(file) else "☆")
+        star.setProperty("role", "iconButton")
+        star.setFixedSize(28, 28)
+        star.setCheckable(True)
+        star.setChecked(self.favorites.contains(file))
+        label = "Remove from favorites" if star.isChecked() else "Add to favorites"
+        star.setToolTip(label)
+        star.setAccessibleName(f"{label}: {file.name}")
+        star.clicked.connect(lambda checked=False, file=file: self.toggle_favorite(file))
+        file_layout.addWidget(star)
+        file_row.name_label = file_label
+        file_row.icon_label = icon_label
+        file_row.star_button = star
+        return file_row
+
+    def update_file_row(self, row, entry):
+        file = entry.path
+        show_extension = self.settings_modal.show_extensions or "folders" in entry.kinds
+        row.name_label.set_name(file.name if show_extension else file.stem)
+        if file not in self._icons:
+            self._icons[file] = (self.icon_provider.generic_icon("folders" in entry.kinds)
+                                 if entry.online_only or entry.error else self.icon_provider.icon(file))
+        row.icon_label.setPixmap(self._icons[file].pixmap(16, 16))
+        pinned = self.favorites.contains(file)
+        row.star_button.setChecked(pinned)
+        row.star_button.setText("\u2605" if pinned else "\u2606")
+        label = "Remove from favorites" if pinned else "Add to favorites"
+        row.star_button.setToolTip(label)
+        row.star_button.setAccessibleName(f"{label}: {file.name}")
+
     def restore_scroll_position(self, position):
+        self.smooth_scroll.stop()
         # Update the scrollbar range before restoring a longer folder's offset.
         self.file_list_layout.activate()
         self.file_list_widget.adjustSize()
@@ -461,4 +575,4 @@ class FileBrowser(QWidget):
         self.settings_modal.hide_settings()
 
     def refresh_files(self):
-        self.create_list_items()
+        self.create_list_items(force=True)

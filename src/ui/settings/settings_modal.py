@@ -5,6 +5,7 @@ from PyQt6.QtGui import QKeySequence
 
 
 from src.ui.custom_widgets.fluent_icon_button import FluentIconButton
+from src.ui.smooth_scroll import SmoothScroll, SmoothComboBox
 
 
 class SettingsModal(QWidget):
@@ -47,6 +48,7 @@ class SettingsModal(QWidget):
         self.layout.addLayout(title_layout)
 
         scroll = QScrollArea()
+        self.smooth_scroll = SmoothScroll(scroll)
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.content = QWidget()
@@ -58,7 +60,7 @@ class SettingsModal(QWidget):
         self.layout.addWidget(scroll, 1)
 
         self._section(settings_layout, "Appearance")
-        self.theme_combo = QComboBox()
+        self.theme_combo = SmoothComboBox()
         self.theme_combo.setAccessibleName("App theme")
         for label, value in (("Use system setting", "system"), ("Light", "light"), ("Dark", "dark")):
             self.theme_combo.addItem(label, value)
@@ -66,7 +68,7 @@ class SettingsModal(QWidget):
         self._card(settings_layout, "App theme", "Choose how File Browser looks.", self.theme_combo)
 
         self._section(settings_layout, "Window")
-        self.docking_combo = QComboBox()
+        self.docking_combo = SmoothComboBox()
         self.docking_combo.setObjectName("settingsDockingCombo")
         self.docking_combo.setAccessibleName("Docking position")
         for label, position in (

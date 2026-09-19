@@ -2,6 +2,14 @@
 
 A Windows tray utility for browsing desktop files and folders.
 
+## Desktop locations and file errors
+
+The Desktop view combines the configured user Desktop and Public Desktop. Windows Known Folders resolves local, OneDrive, relocated, and network-redirected paths; the app does not guess which OneDrive account owns the Desktop. User items take precedence when both locations contain the same filename. Each item retains its real path for opening and **Open file location**.
+
+If one Desktop location cannot be read, readable locations remain available and the status tooltip shows the errors. Online-only cloud shortcuts use a generic icon without reading their contents to trigger a download; opening them lets Windows handle availability. Virtual Shell objects such as Recycle Bin are not filesystem entries and are not included.
+
+File launches are attempted once. Failures appear in the browser status, a tray notification, and the log. The thread executor also treats `OSError` and its subclasses as non-retryable; other tasks retain their configurable retries.
+
 ## Launch and pin
 
 Run `tools/create-shortcuts.ps1` from PowerShell. It creates two shortcuts in `launchers/`, using this checkout's `.venv\Scripts\pythonw.exe` so no console window opens.
@@ -25,6 +33,14 @@ It uses [Windows hotkey registration](https://learn.microsoft.com/en-us/windows/
 - Programs include executable files, installers, batch files, and Windows shortcuts targeting executables. Games are detected from known launcher URLs (Steam, Epic, Ubisoft, Battle.net) or executable targets under `steamapps/common`; unrecognized shortcuts remain under Shortcuts and their extension.
 - Sort by name in either direction, newest first, largest first, or type. The sort choice is remembered. Folder sizes are not calculated recursively.
 - Refresh preserves the query and scroll position. Moving to another folder clears the query; a type filter stays selected if that category exists there.
+
+## Scrolling and refresh performance
+
+Mouse-wheel scrolling is animated in the file list, settings, and combo dropdowns. Touchpad pixel scrolling remains direct. Scrollbar dragging, keyboard navigation, and restored history positions cancel pending animation. Scrolling over a closed settings combo does not change its value.
+
+Unchanged reopens reuse the loaded list without scanning files or extracting icons. Filesystem changes are debounced; hidden panels refresh on their next open. A 30-second fallback checks for changes missed by a watcher, including on shares. Unchanged metadata, icons, and row widgets are reused; filtering and extension display changes do not scan the filesystem. Caches are limited to the current folder. **F5/Ctrl+R** forces metadata and icon refresh, including a shortcut's externally changed icon.
+
+Initial loads and actual rescans still perform filesystem I/O and depend on disk/network responsiveness. A local 300-file benchmark measured the unchanged-reopen list work at about 83 ms before caching and under 1 ms after; this is not an end-to-end window-opening measurement.
 
 ## Favorites and navigation
 
