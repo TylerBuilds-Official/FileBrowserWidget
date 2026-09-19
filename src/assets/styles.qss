@@ -1,187 +1,108 @@
-/*
- * Application stylesheet. Loaded by ScratchApp at startup.
- * Qt stylesheets use CSS-like syntax. Layout margins and spacing live in Python.
- *
- * Starter palette (replace these values to customize the theme):
- *   Background: #20242b    File row: #292f38    Border: #3a414d
- *   Text:       #e5e7eb    Muted:    #8b95a5    Selection: #355b85
- */
-
-/* Shared defaults */
+/* Theme tokens are supplied by utils/system_theme.py. */
 QWidget {
     font-family: "Segoe UI";
     font-size: 10pt;
-    color: #e5e7eb;
-    background-color: #1c1c1c;
+    color: $text;
 }
-
-/* Browser panel: object names are assigned in file_browser.py. */
-QWidget#fileBrowser {
-    border: 1px solid #3a414d;
+QWidget#fileBrowser, QWidget#settingsModal {
+    background-color: $background;
+    border: 1px solid $border;
 }
-
-QLabel#fileBrowserTitle {
-    font-size: 12pt;
-    font-weight: bold;
-    background-color: transparent;
-}
-
-QPushButton#fileBrowserSettingsButton {
-    max-width: 24px;
+QWidget#browserContent, QWidget#fileList, QWidget#settingsContent,
+QScrollArea, QScrollArea > QWidget > QWidget {
+    background: transparent;
     border: none;
 }
-
-QPushButton#fileBrowserSettingsButton:hover {
-
+QLabel { background: transparent; border: none; }
+QLabel#fileBrowserTitle, QLabel#settingsModalTitle {
+    font-size: 18pt;
+    font-weight: 600;
 }
-
-QWidget#settingsModal {
-    background-color: #20242b;
-    border: 1px solid #3a414d;
+QLabel[role="secondary"], QLabel#fileBrowserEmpty { color: $muted; }
+QLabel[role="section"] { font-weight: 600; padding-top: 8px; }
+QLabel[role="settingTitle"] { font-weight: 600; }
+QWidget[role="settingCard"] {
+    background-color: $surface;
+    border: 1px solid $border;
     border-radius: 6px;
 }
-
-QLabel#settingsModalTitle {
-    color: #e5e7eb;
-    background-color: transparent;
-    font-size: 12pt;
-    font-weight: bold;
-    padding: 0 0 4px 0;
+QPushButton {
+    background: $surface;
+    border: 1px solid $border;
+    border-radius: 4px;
+    padding: 6px 12px;
+    min-height: 20px;
 }
-
-QCheckBox#settingsExtensionsCheck {
-    color: #e5e7eb;
-    background-color: #292f38;
+QPushButton:hover { background: $hover; }
+QPushButton:pressed { background: $pressed; }
+QPushButton:focus { border-color: $accent; }
+QPushButton[role="iconButton"] {
+    background: transparent;
+    border: 1px solid transparent;
+    padding: 0;
+    min-height: 0;
+}
+QPushButton[role="iconButton"]:hover { background: $hover; }
+QPushButton[role="iconButton"]:focus { border-color: $accent; }
+QComboBox {
+    background: $surface;
+    border: 1px solid $border;
+    border-bottom: 1px solid $muted;
+    border-radius: 4px;
+    padding: 7px 32px 7px 10px;
+    min-height: 20px;
+}
+QComboBox::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: top right;
+    width: 30px;
+    border: none;
+    background: transparent;
+}
+QComboBox::down-arrow { image: url("$chevron"); width: 12px; height: 12px; }
+QComboBox:hover { background: $hover; }
+QComboBox:focus { border-bottom: 2px solid $accent; }
+QComboBox QAbstractItemView {
+    background: $surface;
+    color: $text;
+    border: 1px solid $border;
+    padding: 4px;
+    selection-background-color: $selection;
+    selection-color: $text;
+    outline: none;
+}
+QComboBox QAbstractItemView::item { min-height: 30px; padding: 2px 8px; }
+QCheckBox { background: transparent; spacing: 10px; min-height: 28px; }
+QCheckBox::indicator {
+    width: 18px;
+    height: 18px;
+    border: 1px solid $muted;
+    border-radius: 3px;
+    background: $surface;
+}
+QCheckBox::indicator:hover { background: $hover; border-color: $accent; }
+QCheckBox::indicator:checked {
+    background: $accent;
+    border-color: $accent;
+    image: url("$checkmark");
+}
+QCheckBox:focus { color: $accent; }
+QWidget#fileEntry {
+    background: transparent;
     border: 1px solid transparent;
     border-radius: 4px;
-    padding: 10px 8px;
-    spacing: 10px;
 }
-
-QCheckBox#settingsExtensionsCheck:hover {
-    background-color: #3a414d;
-}
-
-QCheckBox#settingsExtensionsCheck:focus {
-    border-color: #8b95a5;
-}
-
-QCheckBox#settingsExtensionsCheck:pressed {
-    background-color: #355b85;
-}
-
-QCheckBox#settingsExtensionsCheck:disabled {
-    color: #8b95a5;
-}
-
-QWidget#fileList {
-    background-color: transparent;
-}
-
-QWidget#fileEntry {
-    background-color: #292f38;
-    border: none;
-    border-radius: 2px;
-    padding: 4px;
-}
-
-QWidget#fileEntry:hover {
-    background-color: #3a414d;
-}
-
-QLabel#fileEntryName,
-QLabel#fileEntryIcon {
-    background-color: transparent;
-    border: none;
-    padding: 0;
-}
-
-QLabel#fileBrowserEmpty {
-    color: #8b95a5;
-    background-color: transparent;
-    padding: 12px 0;
-}
-
-QToolTip {
-    color: #e5e7eb;
-    background-color: #292f38;
-    border: 1px solid #3a414d;
-    padding: 6px 8px;
-}
-
-#fileBrowserScrollArea {
-    border: none;
-}
-
-#fileBrowserScrollArea QScrollBar {
-    background: #1c1c1c;
-    border: none;
-    margin: 0;
-}
-
-#fileBrowserScrollArea QScrollBar:vertical {
-    width: 2px;
-}
-
-#fileBrowserScrollArea QScrollBar:horizontal {
-    height: 10px;
-}
-
-#fileBrowserScrollArea QScrollBar::handle {
-    background: #9b9b9b;
-    border-radius: 99px;
-}
-
-#fileBrowserScrollArea QScrollBar::handle:vertical {
-    min-height: 64px;
-}
-
-#fileBrowserScrollArea QScrollBar::handle:horizontal {
-    min-width: 24px;
-}
-
-#fileBrowserScrollArea QScrollBar::handle:hover {
-    background: #a9a9a9;
-    width: 10px;
-}
-
-#fileBrowserScrollArea QScrollBar::handle:pressed {
-    background: #355b85;
-}
-
-#fileBrowserScrollArea QScrollBar::add-line,
-#fileBrowserScrollArea QScrollBar::sub-line {
-    width: 0;
-    height: 0;
-    border: none;
-    background: transparent;
-}
-
-#fileBrowserScrollArea QScrollBar::add-page,
-#fileBrowserScrollArea QScrollBar::sub-page {
-    background: transparent;
-}
-
-/* Tray context menu */
-QMenu {
-    border: 1px solid #3a414d;
-    padding: 4px;
-}
-
-QMenu::item {
-    padding: 6px 24px 6px 12px;
-}
-
-QMenu::item:selected {
-    background-color: #355b85;
-}
-
-QMenu::item:disabled {
-    color: #8b95a5;
-}
-
-QMenu::separator {
-    height: 1px;
-    background-color: #3a414d;
-    margin: 4px 8px;
-}
+QWidget#fileEntry:hover { background: $hover; }
+QWidget#fileEntry:focus { background: $selection; border-color: $accent; }
+QLabel#fileEntryName, QLabel#fileEntryIcon { background: transparent; border: none; }
+QLabel#fileBrowserEmpty { padding: 20px 0; }
+QScrollBar:vertical { background: transparent; width: 8px; margin: 2px; }
+QScrollBar::handle:vertical { background: $scrollbar; border-radius: 2px; min-height: 36px; }
+QScrollBar::handle:vertical:hover { background: $muted; }
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: transparent; }
+QMenu { background: $surface; border: 1px solid $border; padding: 4px; }
+QMenu::item { padding: 7px 28px 7px 12px; border-radius: 3px; }
+QMenu::item:selected { background: $selection; }
+QMenu::separator { height: 1px; background: $border; margin: 4px 8px; }
+QToolTip { background: $surface; color: $text; border: 1px solid $border; padding: 6px; }

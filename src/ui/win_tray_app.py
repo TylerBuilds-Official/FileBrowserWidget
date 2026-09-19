@@ -2,11 +2,11 @@ from pathlib import Path
 
 from src.ui.file_browser import FileBrowser
 from src.ui.ui_functions import UIFunctions
-from src.utils.file_opener import FileOpener
+from src.utils.system_theme import SystemTheme
 
-from PyQt6.QtCore import Qt, QPoint
+from PyQt6.QtCore import QSettings
 from PyQt6.QtGui import QIcon, QAction
-from PyQt6.QtWidgets import (QMainWindow, QMenu,
+from PyQt6.QtWidgets import (QMenu,
                              QApplication, QSystemTrayIcon)
 
 
@@ -20,15 +20,22 @@ class WinTrayApp(QApplication):
         # App Configs
         self.setQuitOnLastWindowClosed(False)
 
-        # Shared stylesheet, resolved independently of the working directory.
+        self.setApplicationName("File Browser")
+        self.preferences = QSettings("FileBrowserWidget", "FileBrowserWidget")
+        self.theme_helper = SystemTheme(self, self.preferences)
+
+        # Assets are resolved independently of the working directory.
         assets_dir = Path(__file__).resolve().parents[1] / "assets"
-        self.setStyleSheet((assets_dir / "styles.qss").read_text(encoding="utf-8"))
 
         # Imported Widgets
-        self.file_browser = FileBrowser()
+        self.file_browser = FileBrowser(settings=self.preferences)
         self.file_browser.setMinWidth(400)
-        self.file_browser.setMinHeight(600)
+        self.file_browser.setMinHeight(640)
         self.file_browser.program_clicked.connect(self.open_file)
+        self.file_browser.file_location_clicked.connect(self.ui_functions.open_file_location)
+        self.file_browser.settings_modal.docking_position_changed.connect(self.reposition_popup)
+
+        self.file_browser.settings_modal.theme_mode_changed.connect(self.theme_helper.set_mode)
 
         icon_path = assets_dir / "filter.ico"
 
@@ -36,7 +43,7 @@ class WinTrayApp(QApplication):
         self.tray_icon = QSystemTrayIcon()
         self.tray_icon.setIcon(QIcon(str(icon_path)))
         self.tray_icon.show()
-        self.tray_icon.setToolTip("Scratch App")
+        self.tray_icon.setToolTip("File Browser")
 
         self.tray_icon.activated.connect(self.tray_click_router)
 
@@ -64,13 +71,11 @@ class WinTrayApp(QApplication):
             self.file_browser.show()
             self.file_browser.raise_()
             self.file_browser.activateWindow()
-            self.file_browser.settings_modal.hide_settings()
+            self.file_browser.settings_modal.hide_settings(animated=False)
 
 
-            #FIXME: Dynamic spacing off of a configurable docking location -- currently no conf or db to persist on
-            popout_pos = self.ui_functions.get_popup_pos()
-            self.file_browser.move(popout_pos)
             self.file_browser.create_list_items()
+            self.reposition_popup()
 
         if reason == QSystemTrayIcon.ActivationReason.Context:
             print("Right Click")
@@ -80,6 +85,9 @@ class WinTrayApp(QApplication):
 
         if reason == QSystemTrayIcon.ActivationReason.DoubleClick:
             print("Double Click")
+
+    def reposition_popup(self):
+        self.file_browser.move(self.ui_functions.get_popup_pos())
 
     def open_file(self, signal):
         print("Opening file: ", signal)
