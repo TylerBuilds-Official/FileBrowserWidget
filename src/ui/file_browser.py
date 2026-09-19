@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from PyQt6.QtWidgets import QWidget, QScrollArea, QHBoxLayout, QMenu, QLineEdit, QComboBox, QPushButton
+from PyQt6.QtWidgets import QWidget, QScrollArea, QHBoxLayout, QMenu, QPushButton, QStyle
 from PyQt6.QtCore import Qt, pyqtSignal, QStandardPaths
 from PyQt6.QtWidgets import QVBoxLayout, QLabel
 
@@ -8,6 +8,7 @@ from PyQt6.QtWidgets import QVBoxLayout, QLabel
 from src.ui.custom_widgets.fluent_icon_button import FluentIconButton
 from src.ui.file_name_label import FileNameLabel
 from src.ui.breadcrumbs import Breadcrumbs
+from src.ui.filter_menu import FilterMenu
 from src.utils.favorites import Favorites
 from src.ui.custom_widgets.file_row_widget import FileRowWidget
 from src.ui.settings.settings_modal import SettingsModal
@@ -47,8 +48,8 @@ class FileBrowser(QWidget):
         self.content.setObjectName("browserContent")
         outer_layout.addWidget(self.content)
         layout = QVBoxLayout(self.content)
-        layout.setContentsMargins(20, 20, 20, 16)
-        layout.setSpacing(14)
+        layout.setContentsMargins(12, 12, 12, 10)
+        layout.setSpacing(6)
 
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
@@ -81,43 +82,42 @@ class FileBrowser(QWidget):
         self.header_layout.addWidget(self.settings_button)
         layout.addLayout(self.header_layout)
 
-        places = QHBoxLayout()
-        self.home_button = QPushButton("Desktop")
+        navigation = QHBoxLayout()
+        navigation.setSpacing(4)
+        self.home_button = QPushButton()
+        self.home_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DesktopIcon))
+        self.home_button.setAccessibleName("Desktop")
         self.home_button.setToolTip("Return to Desktop (Alt+Home)")
         self.home_button.clicked.connect(self.go_home)
-        places.addWidget(self.home_button)
-        self.favorites_button = QPushButton("Favorites")
+        self.favorites_button = QPushButton("\u2606")
         self.favorites_button.setAccessibleName("Open favorites")
+        self.favorites_button.setToolTip("Favorites")
         self.favorites_button.clicked.connect(self.show_favorites_menu)
-        places.addWidget(self.favorites_button)
-        places.addStretch()
-        layout.addLayout(places)
+        for button in (self.home_button, self.favorites_button):
+            button.setProperty("role", "iconButton")
+            button.setFixedSize(28, 28)
+            navigation.addWidget(button)
         self.path_label = Breadcrumbs(self.current_folder)
         self.path_label.folder_clicked.connect(self.navigate_to)
         self.path_label.setObjectName("browserPath")
         self.path_label.setProperty("role", "secondary")
         self.path_label.setToolTip(str(self.current_folder))
-        layout.addWidget(self.path_label)
-        self.search_edit = QLineEdit()
-        self.search_edit.setPlaceholderText("Search this folder (Ctrl+F)")
-        self.search_edit.setAccessibleName("Search this folder")
-        self.search_edit.setClearButtonEnabled(True)
-        layout.addWidget(self.search_edit)
-        controls = QHBoxLayout()
-        self.filter_combo = QComboBox()
-        self.filter_combo.setAccessibleName("Filter file types")
-        self.filter_combo.addItem("All types", "all")
-        self.sort_combo = QComboBox()
-        self.sort_combo.setAccessibleName("Sort files")
-        for label, value in (("Name: A to Z", "name"), ("Name: Z to A", "name_desc"),
-                             ("Newest first", "modified"), ("Largest first", "size"),
-                             ("File type", "type")):
-            self.sort_combo.addItem(label, value)
-        saved_sort = settings.value("files/sort", "name") if settings is not None else "name"
-        self.sort_combo.setCurrentIndex(max(0, self.sort_combo.findData(saved_sort)))
-        controls.addWidget(self.filter_combo, 1)
-        controls.addWidget(self.sort_combo, 1)
-        layout.addLayout(controls)
+        navigation.addWidget(self.path_label, 1)
+        self.filter_button = QPushButton("Filter")
+        self.filter_button.setObjectName("filterButton")
+        self.filter_button.setFixedSize(72, 28)
+        self.filter_button.setToolTip("Search, filter, and sort (Ctrl+F)")
+        self.filter_button.setAccessibleName("Search, filter, and sort")
+        self.filter_button.setCheckable(True)
+        self.filter_button.clicked.connect(self.focus_search)
+        navigation.addWidget(self.filter_button)
+        layout.addLayout(navigation)
+        self.filter_menu = FilterMenu(self.filter_button, settings)
+        self.search_edit = self.filter_menu.search_edit
+        self.filter_combo = self.filter_menu.filter_combo
+        self.sort_combo = self.filter_menu.sort_combo
+        self.filter_menu.clear_button.clicked.connect(self.clear_filters)
+        self.filter_menu.aboutToHide.connect(self.update_filter_button)
         layout.addWidget(self.scroll_area, 1)
         self.status_label = QLabel("Desktop")
         self.status_label.setProperty("role", "secondary")
@@ -193,10 +193,33 @@ class FileBrowser(QWidget):
         self.render_entries(0)
 
     def focus_search(self):
-        self.search_edit.setFocus()
-        self.search_edit.selectAll()
+        self.filter_menu.open_at(self.filter_button)
+
+    def clear_filters(self):
+        self.search_edit.blockSignals(True)
+        self.filter_combo.blockSignals(True)
+        self.search_edit.clear()
+        self.filter_combo.setCurrentIndex(0)
+        self.search_edit.blockSignals(False)
+        self.filter_combo.blockSignals(False)
+        self.apply_filters()
+
+    def update_filter_button(self):
+        active = bool(self.search_edit.text().strip()) or self.filter_combo.currentData() != "all"
+        changed = active or self.sort_combo.currentData() != "name"
+        self.filter_button.setChecked(changed)
+        self.filter_button.setText("Filter \u2022" if changed else "Filter")
+        details = ["Search, filter, and sort (Ctrl+F)"]
+        if self.search_edit.text().strip():
+            details.append("Search: " + self.search_edit.text().strip())
+        if self.filter_combo.currentData() != "all":
+            details.append("Type: " + self.filter_combo.currentText())
+        details.append("Sort: " + self.sort_combo.currentText())
+        self.filter_button.setToolTip("\n".join(details))
+        self.filter_menu.clear_button.setEnabled(active)
 
     def render_entries(self, scroll_position=0):
+        self.update_filter_button()
         entries = visible_entries(self.entries, self.search_edit.text(),
                                   self.filter_combo.currentData(), self.sort_combo.currentData())
         entries.sort(key=lambda entry: not self.favorites.contains(entry.path))
@@ -410,7 +433,12 @@ class FileBrowser(QWidget):
         if self.isVisible():
             self.settings_button.setFocus()
 
+    def hideEvent(self, event):
+        self.filter_menu.close()
+        super().hideEvent(event)
+
     def show_settings_modal(self):
+        self.filter_menu.close()
         self.settings_modal.show_settings()
 
     def hide_settings_modal(self):

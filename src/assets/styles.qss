@@ -36,6 +36,8 @@ QPushButton {
 QPushButton:hover { background: $hover; }
 QPushButton:pressed { background: $pressed; }
 QPushButton:focus { border-color: $accent; }
+QPushButton#filterButton { padding: 0 6px; min-height: 0; }
+QPushButton#filterButton:checked { background: $selection; border-color: $accent; }
 QPushButton[role="iconButton"] {
     background: transparent;
     border: 1px solid transparent;

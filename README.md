@@ -19,7 +19,8 @@ It uses [Windows hotkey registration](https://learn.microsoft.com/en-us/windows/
 
 ## Search, filters, and sorting
 
-- **Ctrl+F** focuses the search box. Search matches filenames in the current folder, including their extensions, without scanning subfolders. **Escape** clears a search first, then closes the browser.
+- **Filter** opens search, type filtering, and sorting in a dropdown overlay; **Ctrl+F** opens it with search focused. Search matches filenames in the current folder, including their extensions, without scanning subfolders. **Enter**, **Done**, or **Escape** dismisses the overlay and keeps the results. Outside the overlay, **Escape** clears a search first, then closes the browser.
+- A dot on **Filter** marks an active search, type filter, or non-default sort. **Clear filters** resets search and type without changing your sort.
 - The type dropdown contains only categories and extensions detected in the current folder, with counts. Search and type filtering work together. Empty results say **No matching files**.
 - Programs include executable files, installers, batch files, and Windows shortcuts targeting executables. Games are detected from known launcher URLs (Steam, Epic, Ubisoft, Battle.net) or executable targets under `steamapps/common`; unrecognized shortcuts remain under Shortcuts and their extension.
 - Sort by name in either direction, newest first, largest first, or type. The sort choice is remembered. Folder sizes are not calculated recursively.

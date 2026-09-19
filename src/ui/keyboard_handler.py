@@ -57,6 +57,8 @@ class KeyboardHandler(QObject):
     def close_panel(self):
         if self.browser.settings_modal.isVisible():
             self.browser.settings_modal.hide_settings()
+        elif self.browser.filter_menu.isVisible():
+            self.browser.filter_menu.close()
         elif self.browser.search_edit.text():
             self.browser.search_edit.clear()
         else:
