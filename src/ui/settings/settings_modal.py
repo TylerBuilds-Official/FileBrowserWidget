@@ -1,6 +1,7 @@
 from PyQt6.QtCore import Qt, QEvent, QPoint, QPropertyAnimation, QEasingCurve, pyqtSignal
 from PyQt6.QtWidgets import (QLabel, QHBoxLayout, QCheckBox,
-                             QComboBox, QVBoxLayout, QWidget, QScrollArea)
+                             QComboBox, QVBoxLayout, QWidget, QScrollArea, QKeySequenceEdit, QPushButton)
+from PyQt6.QtGui import QKeySequence
 
 
 from src.ui.custom_widgets.fluent_icon_button import FluentIconButton
@@ -10,6 +11,8 @@ class SettingsModal(QWidget):
     refresh_files = pyqtSignal()
     docking_position_changed = pyqtSignal()
     theme_mode_changed = pyqtSignal(str)
+    startup_changed = pyqtSignal(bool)
+    hotkey_changed = pyqtSignal(str)
     opened = pyqtSignal()
     closed = pyqtSignal()
 
@@ -81,6 +84,27 @@ class SettingsModal(QWidget):
         if settings is not None:
             self.extensions_check.setChecked(settings.value("files/show_extensions", False, type=bool))
         self._card(settings_layout, "File names", "Include endings such as .txt and .pdf.", self.extensions_check)
+        self._section(settings_layout, "Startup and shortcuts")
+        self.startup_check = QCheckBox("Start with Windows")
+        self._card(settings_layout, "Startup", "Start quietly in the tray when you sign in.", self.startup_check)
+        hotkey_controls = QWidget()
+        hotkey_layout = QHBoxLayout(hotkey_controls)
+        hotkey_layout.setContentsMargins(0, 0, 0, 0)
+        saved_hotkey = settings.value("shortcuts/open", "Alt+B") if settings is not None else "Alt+B"
+        self.hotkey_edit = QKeySequenceEdit(QKeySequence(saved_hotkey))
+        self.hotkey_edit.setMaximumSequenceLength(1)
+        self.hotkey_edit.setAccessibleName("Open browser shortcut")
+        self.hotkey_reset = QPushButton("Reset")
+        self.hotkey_reset.setToolTip("Reset shortcut to Alt+B")
+        hotkey_layout.addWidget(self.hotkey_edit, 1)
+        hotkey_layout.addWidget(self.hotkey_reset)
+        self._card(settings_layout, "Open browser shortcut",
+                   "Press Ctrl or Alt with a letter, number, or function key (except F12). Shift is optional.",
+                   hotkey_controls)
+        self.integration_status = QLabel("")
+        self.integration_status.setWordWrap(True)
+        self.integration_status.setProperty("role", "secondary")
+        settings_layout.addWidget(self.integration_status)
         settings_layout.addStretch()
         footer = QLabel("Changes apply automatically")
         footer.setProperty("role", "secondary")
@@ -89,6 +113,20 @@ class SettingsModal(QWidget):
         self.theme_combo.currentIndexChanged.connect(self._theme_changed)
         self.docking_combo.currentIndexChanged.connect(self.emit_docking_position_changed)
         self.extensions_check.stateChanged.connect(self.emit_refresh)
+        self.startup_check.toggled.connect(self.startup_changed.emit)
+        self.hotkey_edit.editingFinished.connect(self._hotkey_edited)
+        self.hotkey_reset.clicked.connect(lambda: self.hotkey_changed.emit("Alt+B"))
+
+    def _hotkey_edited(self):
+        self.hotkey_changed.emit(self.hotkey_edit.keySequence().toString(QKeySequence.SequenceFormat.PortableText))
+
+    def set_startup_enabled(self, enabled):
+        self.startup_check.blockSignals(True)
+        self.startup_check.setChecked(enabled)
+        self.startup_check.blockSignals(False)
+
+    def set_hotkey(self, sequence):
+        self.hotkey_edit.setKeySequence(QKeySequence(sequence))
 
     @staticmethod
     def _section(layout, text):
