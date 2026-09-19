@@ -1,12 +1,14 @@
 from pathlib import Path
 
-from PyQt6.QtWidgets import QWidget, QScrollArea, QHBoxLayout, QMenu, QLineEdit, QComboBox
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtWidgets import QWidget, QScrollArea, QHBoxLayout, QMenu, QLineEdit, QComboBox, QPushButton
+from PyQt6.QtCore import Qt, pyqtSignal, QStandardPaths
 from PyQt6.QtWidgets import QVBoxLayout, QLabel
 
 
 from src.ui.custom_widgets.fluent_icon_button import FluentIconButton
 from src.ui.file_name_label import FileNameLabel
+from src.ui.breadcrumbs import Breadcrumbs
+from src.utils.favorites import Favorites
 from src.ui.custom_widgets.file_row_widget import FileRowWidget
 from src.ui.settings.settings_modal import SettingsModal
 from src.ui.keyboard_handler import KeyboardHandler
@@ -20,7 +22,10 @@ class FileBrowser(QWidget):
 
     def __init__(self, parent=None, settings=None):
         super().__init__(parent=parent)
-        self.current_folder = Path.home() / "Desktop"
+        self.desktop_folder = Path(QStandardPaths.writableLocation(QStandardPaths.StandardLocation.DesktopLocation)
+                                   or Path.home() / "Desktop")
+        self.current_folder = self.desktop_folder
+        self.favorites = Favorites(settings)
         self.preferences = settings
         self.entries = []
         self._icons = {}
@@ -76,7 +81,19 @@ class FileBrowser(QWidget):
         self.header_layout.addWidget(self.settings_button)
         layout.addLayout(self.header_layout)
 
-        self.path_label = FileNameLabel(str(self.current_folder))
+        places = QHBoxLayout()
+        self.home_button = QPushButton("Desktop")
+        self.home_button.setToolTip("Return to Desktop (Alt+Home)")
+        self.home_button.clicked.connect(self.go_home)
+        places.addWidget(self.home_button)
+        self.favorites_button = QPushButton("Favorites")
+        self.favorites_button.setAccessibleName("Open favorites")
+        self.favorites_button.clicked.connect(self.show_favorites_menu)
+        places.addWidget(self.favorites_button)
+        places.addStretch()
+        layout.addLayout(places)
+        self.path_label = Breadcrumbs(self.current_folder)
+        self.path_label.folder_clicked.connect(self.navigate_to)
         self.path_label.setObjectName("browserPath")
         self.path_label.setProperty("role", "secondary")
         self.path_label.setToolTip(str(self.current_folder))
@@ -182,6 +199,7 @@ class FileBrowser(QWidget):
     def render_entries(self, scroll_position=0):
         entries = visible_entries(self.entries, self.search_edit.text(),
                                   self.filter_combo.currentData(), self.sort_combo.currentData())
+        entries.sort(key=lambda entry: not self.favorites.contains(entry.path))
         files = [entry.path for entry in entries]
         count = len(files)
         text = f"{count} item" + ("" if count == 1 else "s")
@@ -237,6 +255,16 @@ class FileBrowser(QWidget):
 
             file_layout.addWidget(icon_label)
             file_layout.addWidget(file_label, 1)
+            star = QPushButton("★" if self.favorites.contains(file) else "☆")
+            star.setProperty("role", "iconButton")
+            star.setFixedSize(28, 28)
+            star.setCheckable(True)
+            star.setChecked(self.favorites.contains(file))
+            label = "Remove from favorites" if star.isChecked() else "Add to favorites"
+            star.setToolTip(label)
+            star.setAccessibleName(f"{label}: {file.name}")
+            star.clicked.connect(lambda checked=False, file=file: self.toggle_favorite(file))
+            file_layout.addWidget(star)
             self.file_list_layout.addWidget(file_row)
             file_row.show()
 
@@ -289,6 +317,39 @@ class FileBrowser(QWidget):
             self.folder_history.append(previous_location)
             self.update_navigation_buttons()
 
+    def go_home(self):
+        self.navigate_to(self.desktop_folder)
+
+    def toggle_favorite(self, file):
+        self.favorites.toggle(file)
+        self.render_entries(self.scroll_area.verticalScrollBar().value())
+
+    def show_favorites_menu(self):
+        menu = QMenu(self)
+        paths = self.favorites.files()
+        if not paths:
+            menu.addAction("Star a file or folder to pin it here").setEnabled(False)
+        for path in paths:
+            action = menu.addAction(path.name or str(path))
+            action.setToolTip(str(path))
+            action.triggered.connect(lambda checked=False, path=path: self.open_favorite(path))
+        if paths:
+            menu.addSeparator()
+            remove = menu.addMenu("Remove favorite")
+            for path in paths:
+                action = remove.addAction(path.name or str(path))
+                action.setToolTip(str(path))
+                action.triggered.connect(lambda checked=False, path=path: self.toggle_favorite(path))
+        menu.exec(self.favorites_button.mapToGlobal(self.favorites_button.rect().bottomLeft()))
+        menu.deleteLater()
+
+    def open_favorite(self, path):
+        if not path.exists():
+            self.status_label.setText("Favorite no longer exists.")
+            self.status_label.setToolTip(str(path))
+            return
+        self.open_item(path)
+
     def go_up(self):
         self.navigate_to(self.current_folder.parent)
 
@@ -321,6 +382,10 @@ class FileBrowser(QWidget):
             explorer_action.triggered.connect(lambda: self.emit_file(str(file)))
         location_action = menu.addAction("Open file location")
         location_action.triggered.connect(lambda: self.file_location_clicked.emit(str(file)))
+        menu.addSeparator()
+        favorite_action = menu.addAction("Remove from favorites" if self.favorites.contains(file)
+                                         else "Add to favorites")
+        favorite_action.triggered.connect(lambda: self.toggle_favorite(file))
         menu.exec(position)
         menu.deleteLater()
 

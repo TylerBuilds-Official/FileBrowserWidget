@@ -17,6 +17,7 @@ class KeyboardHandler(QObject):
             ("Backspace", browser.go_back),
             ("Alt+Right", browser.go_forward),
             ("Alt+Up", browser.go_up),
+            ("Alt+Home", browser.go_home),
             ("F5", browser.refresh_files),
             ("Ctrl+R", browser.refresh_files),
             ("Up", lambda: self.move_focus(-1)),
