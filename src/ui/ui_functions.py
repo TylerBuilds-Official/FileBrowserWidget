@@ -13,10 +13,10 @@ class UIFunctions:
         self.system_info_helper = SystemInfo(ui)
 
     def open_file(self, file: str | Path):
-        self.file_opener.open_file(file)
+        return self.file_opener.open_file(file, on_error=self.ui.report_file_error)
 
     def open_file_location(self, file: str | Path):
-        self.file_opener.open_file_location(file)
+        return self.file_opener.open_file_location(file, on_error=self.ui.report_file_error)
 
     def get_primary_monitor(self):
         return self.system_info_helper.get_primary_monitor()

@@ -150,8 +150,14 @@ class WinTrayApp(QApplication):
         self.file_browser.move(self.ui_functions.get_popup_pos())
 
     def open_file(self, signal):
-        print("Opening file: ", signal)
         self.ui_functions.open_file(Path(signal))
+
+    def report_file_error(self, path, error):
+        self.file_browser.status_label.setText("Could not open item. See details.")
+        details = f"{path}\n{error}"
+        self.file_browser.status_label.setToolTip(details)
+        self.tray_icon.showMessage("Could not open item", details,
+                                  QSystemTrayIcon.MessageIcon.Warning)
 
     def test_func_connection(self):
         print("Test func called")

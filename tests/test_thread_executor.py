@@ -53,7 +53,7 @@ class ThreadExecutorTests(unittest.TestCase):
         def task():
             calls.append(None)
             if len(calls) < 3:
-                raise OSError("Try again")
+                raise RuntimeError("Try again")
 
         executor = ThreadExecutor(task)
         events = self.observe(executor)
@@ -68,7 +68,7 @@ class ThreadExecutorTests(unittest.TestCase):
                 failures = []
 
                 def task():
-                    error = OSError("Cannot open file")
+                    error = RuntimeError("Task failed")
                     failures.append(error)
                     raise error
 
@@ -82,6 +82,37 @@ class ThreadExecutorTests(unittest.TestCase):
                 ])
                 self.assertFalse(executor.thread.task_complete)
                 self.assertNotIn(executor, ThreadExecutor._active_executors)
+
+    def test_os_errors_are_reported_without_retry(self):
+        for error_type in (OSError, PermissionError, FileNotFoundError):
+            with self.subTest(error_type=error_type):
+                calls = []
+                def task():
+                    calls.append(None)
+                    raise error_type("Cannot open file")
+                executor = ThreadExecutor(task, retries=5)
+                events = self.observe(executor)
+                executor.run_task()
+                self.pump_until(lambda: any(name == "failed" for name, _ in events))
+                self.assertEqual(len(calls), 1)
+                errors = [value for name, value in events if name == "errors"]
+                self.assertEqual(len(errors), 1)
+                self.assertIsInstance(errors[0][0], error_type)
+
+    def test_file_opener_reports_path_and_error_on_main_thread(self):
+        from pathlib import Path
+        from unittest.mock import patch
+        from src.utils.file_opener import FileOpener
+        reported = []
+        path = Path("missing.txt").absolute()
+        error = FileNotFoundError("Missing file")
+        with patch("src.utils.file_opener.os.startfile", side_effect=error) as start:
+            with self.assertLogs("src.utils.file_opener", level="ERROR"):
+                FileOpener.open_file(path, on_error=lambda file, exc: reported.append(
+                    (file, exc, threading.get_ident())))
+                self.pump_until(lambda: bool(reported))
+            start.assert_called_once_with(path)
+        self.assertEqual(reported, [(path, error, threading.get_ident())])
 
     def test_local_executor_is_retained_then_released(self):
         # Match FileOpener: no executor is returned or stored by the caller.

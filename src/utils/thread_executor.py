@@ -24,6 +24,8 @@ class Thread(QThread):
                 self.task(*self.args, **self.kwargs)
             except Exception as exc:
                 self.errors.append(exc)
+                if isinstance(exc, OSError):
+                    return
 
             else:
                 self.task_complete = True
@@ -36,7 +38,7 @@ class ThreadExecutor(QObject):
 
     Create and start executors in the application thread with a running Qt
     event loop. Active executors retain themselves until their worker finishes.
-    Errors are reported only after all attempts fail.
+    OSError is reported after the first attempt; other errors can be retried.
     """
 
     _active_executors = set()
