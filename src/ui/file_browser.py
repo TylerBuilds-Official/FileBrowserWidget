@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from PyQt6.QtWidgets import QWidget, QScrollArea, QFileIconProvider, QHBoxLayout, QMenu
-from PyQt6.QtCore import Qt, QFileInfo, pyqtSignal
+from PyQt6.QtWidgets import QWidget, QScrollArea, QHBoxLayout, QMenu
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import QVBoxLayout, QLabel
 
 
@@ -9,6 +9,8 @@ from src.ui.custom_widgets.fluent_icon_button import FluentIconButton
 from src.ui.file_name_label import FileNameLabel
 from src.ui.custom_widgets.file_row_widget import FileRowWidget
 from src.ui.settings.settings_modal import SettingsModal
+from src.ui.keyboard_handler import KeyboardHandler
+from src.utils.file_icons import FileIcons
 
 
 class FileBrowser(QWidget):
@@ -19,6 +21,7 @@ class FileBrowser(QWidget):
         super().__init__(parent=parent)
         self.current_folder = Path.home() / "Desktop"
         self.folder_history = []
+        self.forward_history = []
         self.setObjectName("fileBrowser")
         # Allow the stylesheet to paint this custom QWidget's background/border.
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
@@ -28,7 +31,7 @@ class FileBrowser(QWidget):
             Qt.WindowType.FramelessWindowHint
         )
 
-        self.icon_provider = QFileIconProvider()
+        self.icon_provider = FileIcons()
         outer_layout = QVBoxLayout(self)
         outer_layout.setContentsMargins(0, 0, 0, 0)
         self.content = QWidget()
@@ -48,6 +51,11 @@ class FileBrowser(QWidget):
         self.back_button = FluentIconButton("arrow-left", "Back")
         self.back_button.setEnabled(False)
         self.back_button.clicked.connect(self.go_back)
+        self.back_button.setToolTip("Back (Alt+Left)")
+        self.forward_button = FluentIconButton("arrow-right", "Forward")
+        self.forward_button.setEnabled(False)
+        self.forward_button.setToolTip("Forward (Alt+Right)")
+        self.forward_button.clicked.connect(self.go_forward)
 
         self.title_label = FileNameLabel("Desktop")
         self.title_label.setObjectName("fileBrowserTitle")
@@ -59,6 +67,7 @@ class FileBrowser(QWidget):
         self.settings_button.clicked.connect(self.show_settings_modal)
 
         self.header_layout.addWidget(self.back_button)
+        self.header_layout.addWidget(self.forward_button)
         self.header_layout.addWidget(self.title_label, 1)
         self.header_layout.addWidget(self.settings_button)
         layout.addLayout(self.header_layout)
@@ -89,6 +98,7 @@ class FileBrowser(QWidget):
         self.settings_modal.refresh_files.connect(self.refresh_files)
         self.settings_modal.opened.connect(lambda: self.content.setEnabled(False))
         self.settings_modal.closed.connect(self._settings_closed)
+        self.keyboard_handler = KeyboardHandler(self)
 
 
 
@@ -98,8 +108,10 @@ class FileBrowser(QWidget):
         folder = Path(folder)
         return list(folder.iterdir())
 
-    def create_list_items(self, folder=None):
+    def create_list_items(self, folder=None, scroll_position=None):
         folder = Path(folder) if folder is not None else self.current_folder
+        if scroll_position is None:
+            scroll_position = self.scroll_area.verticalScrollBar().value() if folder == self.current_folder else 0
         try:
             files = self.traverse_level(folder)
         except OSError as error:
@@ -114,7 +126,6 @@ class FileBrowser(QWidget):
         self.path_label.setToolTip(str(folder))
         self.status_label.setText(f"{len(files)} item" + ("" if len(files) == 1 else "s"))
         self.status_label.setToolTip("")
-        self.scroll_area.verticalScrollBar().setValue(0)
 
         while self.file_list_layout.count():
             item = self.file_list_layout.takeAt(0)
@@ -125,11 +136,14 @@ class FileBrowser(QWidget):
             empty_label = QLabel("No files in this folder.")
             empty_label.setObjectName("fileBrowserEmpty")
             self.file_list_layout.addWidget(empty_label)
+            empty_label.show()
+            self.restore_scroll_position(scroll_position)
 
             return True
 
         for file in files:
             file_row = FileRowWidget()
+            self.keyboard_handler.register_row(file_row)
             file_row.setObjectName("fileEntry")
             file_row.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
             file_row.setFixedHeight(40)
@@ -144,7 +158,7 @@ class FileBrowser(QWidget):
             file_layout.setContentsMargins(10, 0, 10, 0)
             file_layout.setSpacing(10)
 
-            file_icon  = self.icon_provider.icon(QFileInfo(str(file)))
+            file_icon  = self.icon_provider.icon(file)
             icon_label = QLabel()
 
             show_extension = self.settings_modal.show_extensions or file.is_dir()
@@ -159,23 +173,77 @@ class FileBrowser(QWidget):
             file_layout.addWidget(icon_label)
             file_layout.addWidget(file_label, 1)
             self.file_list_layout.addWidget(file_row)
+            file_row.show()
 
+        self.restore_scroll_position(scroll_position)
         return True
+
+    def restore_scroll_position(self, position):
+        # Update the scrollbar range before restoring a longer folder's offset.
+        self.file_list_layout.activate()
+        self.file_list_widget.adjustSize()
+        self.scroll_area.verticalScrollBar().setValue(position)
+
+    def current_location(self):
+        return self.current_folder, self.scroll_area.verticalScrollBar().value()
 
     def open_item(self, file):
         file = Path(file)
         if file.is_dir():
-            previous_folder = self.current_folder
-            if self.create_list_items(file):
-                self.folder_history.append(previous_folder)
-                self.back_button.setEnabled(True)
+            self.navigate_to(file)
         else:
             self.emit_file(str(file))
 
+    def navigate_to(self, folder):
+        folder = Path(folder)
+        if folder == self.current_folder:
+            return
+        previous_location = self.current_location()
+        if self.create_list_items(folder):
+            self.folder_history.append(previous_location)
+            self.forward_history.clear()
+            self.update_navigation_buttons()
+
     def go_back(self):
-        if self.folder_history and self.create_list_items(self.folder_history[-1]):
+        if not self.folder_history:
+            return
+        previous_location = self.current_location()
+        folder, scroll_position = self.folder_history[-1]
+        if self.create_list_items(folder, scroll_position):
             self.folder_history.pop()
-            self.back_button.setEnabled(bool(self.folder_history))
+            self.forward_history.append(previous_location)
+            self.update_navigation_buttons()
+
+    def go_forward(self):
+        if not self.forward_history:
+            return
+        previous_location = self.current_location()
+        folder, scroll_position = self.forward_history[-1]
+        if self.create_list_items(folder, scroll_position):
+            self.forward_history.pop()
+            self.folder_history.append(previous_location)
+            self.update_navigation_buttons()
+
+    def go_up(self):
+        self.navigate_to(self.current_folder.parent)
+
+    def update_navigation_buttons(self):
+        self.back_button.setEnabled(bool(self.folder_history))
+        self.forward_button.setEnabled(bool(self.forward_history))
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.BackButton:
+            if self.settings_modal.isVisible():
+                self.settings_modal.hide_settings()
+            else:
+                self.go_back()
+            event.accept()
+        elif event.button() == Qt.MouseButton.ForwardButton:
+            if not self.settings_modal.isVisible():
+                self.go_forward()
+            event.accept()
+        else:
+            super().mousePressEvent(event)
 
     def show_file_menu(self, file, position):
         file = Path(file)

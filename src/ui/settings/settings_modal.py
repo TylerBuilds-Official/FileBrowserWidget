@@ -1,5 +1,4 @@
 from PyQt6.QtCore import Qt, QEvent, QPoint, QPropertyAnimation, QEasingCurve, pyqtSignal
-from PyQt6.QtGui import QKeySequence, QShortcut
 from PyQt6.QtWidgets import (QLabel, QHBoxLayout, QCheckBox,
                              QComboBox, QVBoxLayout, QWidget, QScrollArea)
 
@@ -90,9 +89,6 @@ class SettingsModal(QWidget):
         self.theme_combo.currentIndexChanged.connect(self._theme_changed)
         self.docking_combo.currentIndexChanged.connect(self.emit_docking_position_changed)
         self.extensions_check.stateChanged.connect(self.emit_refresh)
-        self._escape = QShortcut(QKeySequence("Esc"), self)
-        self._escape.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
-        self._escape.activated.connect(self.hide_settings)
 
     @staticmethod
     def _section(layout, text):

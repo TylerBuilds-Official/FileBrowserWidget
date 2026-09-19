@@ -11,3 +11,5 @@ Copyright Microsoft Corporation. Distributed under the MIT license; see LICENSE 
 - `chevron-down.svg`: `assets/Chevron Down/SVG/ic_fluent_chevron_down_16_regular.svg`
 
 The `-light.svg` and `-dark.svg` variants change only the fill color for themed Qt stylesheet controls; geometry is unchanged.
+
+`arrow-right.svg` mirrors the upstream Arrow Left SVG horizontally for forward navigation.

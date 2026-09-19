@@ -3,8 +3,10 @@ from pathlib import Path
 from src.ui.file_browser import FileBrowser
 from src.ui.ui_functions import UIFunctions
 from src.utils.system_theme import SystemTheme
+from src.utils.global_hotkey import GlobalHotkey
+from src.utils.single_instance import SingleInstance
 
-from PyQt6.QtCore import QSettings
+from PyQt6.QtCore import QSettings, QTimer
 from PyQt6.QtGui import QIcon, QAction
 from PyQt6.QtWidgets import (QMenu,
                              QApplication, QSystemTrayIcon)
@@ -12,13 +14,17 @@ from PyQt6.QtWidgets import (QMenu,
 
 
 class WinTrayApp(QApplication):
-    def __init__(self):
+    def __init__(self, show_on_start=True):
         super().__init__([])
+        self.setQuitOnLastWindowClosed(False)
+        self.instance = SingleInstance(self)
+        self.is_primary = self.instance.start_or_notify(show=show_on_start)
+        if not self.is_primary:
+            return
+        self.aboutToQuit.connect(self.instance.close)
+        self.instance.show_requested.connect(self.show_browser)
 
         self.ui_functions = UIFunctions(self)
-
-        # App Configs
-        self.setQuitOnLastWindowClosed(False)
 
         self.setApplicationName("File Browser")
         self.preferences = QSettings("FileBrowserWidget", "FileBrowserWidget")
@@ -50,6 +56,11 @@ class WinTrayApp(QApplication):
         # Menu and actions
         self.menu = QMenu()
 
+        self.open_action = QAction(text="Open File Browser (Alt+B)")
+        self.open_action.triggered.connect(self.show_browser)
+        self.menu.addAction(self.open_action)
+        self.menu.addSeparator()
+
         self.quit_action = QAction(text="Quit")
         self.quit_action.triggered.connect(self.kill_app)
         self.menu.addAction(self.quit_action)
@@ -61,30 +72,33 @@ class WinTrayApp(QApplication):
         # add menu to tray
         self.tray_icon.setContextMenu(self.menu)
 
+        self.global_hotkey = GlobalHotkey(self, self.show_browser)
+        if not self.global_hotkey.register():
+            self.open_action.setText("Open File Browser (Alt+B unavailable)")
+            self.tray_icon.setToolTip("File Browser â€” Alt+B unavailable")
+            QTimer.singleShot(1000, self.show_hotkey_error)
+        if show_on_start:
+            QTimer.singleShot(0, self.show_browser)
+
 
     def kill_app(self):
         self.quit()
 
     def tray_click_router(self, reason):
         if reason == QSystemTrayIcon.ActivationReason.Trigger:
-            print("Left Click")
-            self.file_browser.show()
-            self.file_browser.raise_()
-            self.file_browser.activateWindow()
-            self.file_browser.settings_modal.hide_settings(animated=False)
+            self.show_browser()
 
+    def show_browser(self):
+        self.file_browser.settings_modal.hide_settings(animated=False)
+        self.file_browser.create_list_items()
+        self.file_browser.show()
+        self.reposition_popup()
+        self.file_browser.raise_()
+        self.file_browser.activateWindow()
 
-            self.file_browser.create_list_items()
-            self.reposition_popup()
-
-        if reason == QSystemTrayIcon.ActivationReason.Context:
-            print("Right Click")
-
-        if reason == QSystemTrayIcon.ActivationReason.MiddleClick:
-            print("Middle Click")
-
-        if reason == QSystemTrayIcon.ActivationReason.DoubleClick:
-            print("Double Click")
+    def show_hotkey_error(self):
+        self.tray_icon.showMessage("File Browser", self.global_hotkey.error,
+                                  QSystemTrayIcon.MessageIcon.Warning)
 
     def reposition_popup(self):
         self.file_browser.move(self.ui_functions.get_popup_pos())

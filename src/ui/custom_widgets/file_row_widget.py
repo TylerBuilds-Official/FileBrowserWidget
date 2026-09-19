@@ -13,10 +13,3 @@ class FileRowWidget(QWidget):
             self.clicked.emit()
         else:
             super().mousePressEvent(event)
-
-    def keyPressEvent(self, event):
-        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
-            self.clicked.emit()
-            event.accept()
-        else:
-            super().keyPressEvent(event)
