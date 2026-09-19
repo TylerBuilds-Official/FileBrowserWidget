@@ -106,3 +106,13 @@ QMenu::item { padding: 7px 28px 7px 12px; border-radius: 3px; }
 QMenu::item:selected { background: $selection; }
 QMenu::separator { height: 1px; background: $border; margin: 4px 8px; }
 QToolTip { background: $surface; color: $text; border: 1px solid $border; padding: 6px; }
+
+QLineEdit, QKeySequenceEdit {
+    background: $surface;
+    border: 1px solid $border;
+    border-bottom: 1px solid $muted;
+    border-radius: 4px;
+    padding: 7px 10px;
+    min-height: 20px;
+}
+QLineEdit:focus, QKeySequenceEdit:focus { border-bottom: 2px solid $accent; }

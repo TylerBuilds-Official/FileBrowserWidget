@@ -12,6 +12,7 @@ class KeyboardHandler(QObject):
         self.browser = browser
         self.shortcuts = []
         for key, action in (
+            ("Ctrl+F", browser.focus_search),
             ("Alt+Left", browser.go_back),
             ("Backspace", browser.go_back),
             ("Alt+Right", browser.go_forward),
@@ -55,6 +56,8 @@ class KeyboardHandler(QObject):
     def close_panel(self):
         if self.browser.settings_modal.isVisible():
             self.browser.settings_modal.hide_settings()
+        elif self.browser.search_edit.text():
+            self.browser.search_edit.clear()
         else:
             self.browser.hide()
 

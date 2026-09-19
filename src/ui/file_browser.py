@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from PyQt6.QtWidgets import QWidget, QScrollArea, QHBoxLayout, QMenu
+from PyQt6.QtWidgets import QWidget, QScrollArea, QHBoxLayout, QMenu, QLineEdit, QComboBox
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import QVBoxLayout, QLabel
 
@@ -11,6 +11,7 @@ from src.ui.custom_widgets.file_row_widget import FileRowWidget
 from src.ui.settings.settings_modal import SettingsModal
 from src.ui.keyboard_handler import KeyboardHandler
 from src.utils.file_icons import FileIcons
+from src.utils.file_listing import describe_file, filter_options, visible_entries
 
 
 class FileBrowser(QWidget):
@@ -20,6 +21,9 @@ class FileBrowser(QWidget):
     def __init__(self, parent=None, settings=None):
         super().__init__(parent=parent)
         self.current_folder = Path.home() / "Desktop"
+        self.preferences = settings
+        self.entries = []
+        self._icons = {}
         self.folder_history = []
         self.forward_history = []
         self.setObjectName("fileBrowser")
@@ -77,6 +81,26 @@ class FileBrowser(QWidget):
         self.path_label.setProperty("role", "secondary")
         self.path_label.setToolTip(str(self.current_folder))
         layout.addWidget(self.path_label)
+        self.search_edit = QLineEdit()
+        self.search_edit.setPlaceholderText("Search this folder (Ctrl+F)")
+        self.search_edit.setAccessibleName("Search this folder")
+        self.search_edit.setClearButtonEnabled(True)
+        layout.addWidget(self.search_edit)
+        controls = QHBoxLayout()
+        self.filter_combo = QComboBox()
+        self.filter_combo.setAccessibleName("Filter file types")
+        self.filter_combo.addItem("All types", "all")
+        self.sort_combo = QComboBox()
+        self.sort_combo.setAccessibleName("Sort files")
+        for label, value in (("Name: A to Z", "name"), ("Name: Z to A", "name_desc"),
+                             ("Newest first", "modified"), ("Largest first", "size"),
+                             ("File type", "type")):
+            self.sort_combo.addItem(label, value)
+        saved_sort = settings.value("files/sort", "name") if settings is not None else "name"
+        self.sort_combo.setCurrentIndex(max(0, self.sort_combo.findData(saved_sort)))
+        controls.addWidget(self.filter_combo, 1)
+        controls.addWidget(self.sort_combo, 1)
+        layout.addLayout(controls)
         layout.addWidget(self.scroll_area, 1)
         self.status_label = QLabel("Desktop")
         self.status_label.setProperty("role", "secondary")
@@ -99,6 +123,9 @@ class FileBrowser(QWidget):
         self.settings_modal.opened.connect(lambda: self.content.setEnabled(False))
         self.settings_modal.closed.connect(self._settings_closed)
         self.keyboard_handler = KeyboardHandler(self)
+        self.search_edit.textChanged.connect(self.apply_filters)
+        self.filter_combo.currentIndexChanged.connect(self.apply_filters)
+        self.sort_combo.currentIndexChanged.connect(self.sort_changed)
 
 
 
@@ -119,12 +146,48 @@ class FileBrowser(QWidget):
             self.status_label.setToolTip(str(error))
             return False
 
+        if folder != self.current_folder:
+            self.search_edit.blockSignals(True)
+            self.search_edit.clear()
+            self.search_edit.blockSignals(False)
+        self.entries = [describe_file(file) for file in files]
+        self._icons.clear()
+        previous_filter = self.filter_combo.currentData()
+        self.filter_combo.blockSignals(True)
+        self.filter_combo.clear()
+        for label, value in filter_options(self.entries):
+            self.filter_combo.addItem(label, value)
+        self.filter_combo.setCurrentIndex(max(0, self.filter_combo.findData(previous_filter)))
+        self.filter_combo.blockSignals(False)
         self.current_folder = folder
         self.title_label.set_name(folder.name or str(folder))
         self.title_label.setToolTip(str(folder))
         self.path_label.set_name(str(folder))
         self.path_label.setToolTip(str(folder))
-        self.status_label.setText(f"{len(files)} item" + ("" if len(files) == 1 else "s"))
+        self.render_entries(scroll_position)
+        return True
+
+    def apply_filters(self):
+        self.render_entries(0)
+
+    def sort_changed(self):
+        if self.preferences is not None:
+            self.preferences.setValue("files/sort", self.sort_combo.currentData())
+        self.render_entries(0)
+
+    def focus_search(self):
+        self.search_edit.setFocus()
+        self.search_edit.selectAll()
+
+    def render_entries(self, scroll_position=0):
+        entries = visible_entries(self.entries, self.search_edit.text(),
+                                  self.filter_combo.currentData(), self.sort_combo.currentData())
+        files = [entry.path for entry in entries]
+        count = len(files)
+        text = f"{count} item" + ("" if count == 1 else "s")
+        if count != len(self.entries):
+            text = f"{count} of {len(self.entries)} items"
+        self.status_label.setText(text)
         self.status_label.setToolTip("")
 
         while self.file_list_layout.count():
@@ -133,7 +196,7 @@ class FileBrowser(QWidget):
             item.widget().deleteLater()
 
         if not files:
-            empty_label = QLabel("No files in this folder.")
+            empty_label = QLabel("No matching files." if self.entries else "No files in this folder.")
             empty_label.setObjectName("fileBrowserEmpty")
             self.file_list_layout.addWidget(empty_label)
             empty_label.show()
@@ -158,7 +221,9 @@ class FileBrowser(QWidget):
             file_layout.setContentsMargins(10, 0, 10, 0)
             file_layout.setSpacing(10)
 
-            file_icon  = self.icon_provider.icon(file)
+            if file not in self._icons:
+                self._icons[file] = self.icon_provider.icon(file)
+            file_icon = self._icons[file]
             icon_label = QLabel()
 
             show_extension = self.settings_modal.show_extensions or file.is_dir()
