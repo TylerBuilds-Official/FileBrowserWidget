@@ -1,5 +1,6 @@
 import configparser
 import os
+import stat
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -12,6 +13,9 @@ class FileEntry:
     kinds: set[str]
     modified: float = 0
     size: int = 0
+    error: str = ""
+    online_only: bool = False
+    stamp: tuple = ()
 
 
 def read_shortcut(file):
@@ -36,36 +40,50 @@ def is_game_target(target):
                               "battlenet://")) or "/steamapps/common/" in target
 
 
-def describe_file(file):
+def file_stamp(info):
+    return (info.st_mtime_ns, info.st_ctime_ns, info.st_size, info.st_mode,
+            getattr(info, "st_file_attributes", 0))
+
+
+def describe_file(file, info=None):
     file = Path(file)
-    if file.is_dir():
+    extension = file.suffix.lower()
+    kinds = {"ext:" + extension} if extension else {"no_extension"}
+    try:
+        info = info if info is not None else file.stat()
+    except OSError as error:
+        return FileEntry(file, kinds, error=str(error))
+    attributes = getattr(info, "st_file_attributes", 0)
+    # Don't hydrate cloud placeholders just to read shortcut metadata or icons.
+    online_only = bool(attributes & (0x1000 | 0x40000 | 0x400000))
+    error_text = ""
+    if stat.S_ISDIR(info.st_mode):
         kinds = {"folders"}
     else:
-        extension = file.suffix.lower()
-        kinds = {"ext:" + extension} if extension else {"no_extension"}
         if extension in (".exe", ".com", ".bat", ".cmd", ".msi"):
             kinds.add("programs")
         if extension in (".lnk", ".url"):
             kinds.add("shortcuts")
             try:
-                if extension == ".url":
-                    shortcut = read_shortcut(file)
-                    target = shortcut.get("InternetShortcut", "URL", fallback="")
-                else:
-                    target = QFileInfo(str(file)).symLinkTarget()
-                    if Path(target).suffix.lower() in (".exe", ".com", ".bat", ".cmd"):
-                        kinds.add("programs")
+                target = ""
+                if not online_only:
+                    if extension == ".url":
+                        shortcut = read_shortcut(file)
+                        target = shortcut.get("InternetShortcut", "URL", fallback="")
+                    else:
+                        target = QFileInfo(str(file)).symLinkTarget()
+                        if Path(target).suffix.lower() in (".exe", ".com", ".bat", ".cmd"):
+                            kinds.add("programs")
                 if is_game_target(target):
                     kinds.add("games")
-            except (OSError, UnicodeError, ValueError, configparser.Error):
+            except OSError as error:
+                error_text = str(error)
+            except (UnicodeError, ValueError, configparser.Error):
                 pass
         elif is_game_target(str(file)) and extension == ".exe":
             kinds.add("games")
-    try:
-        stat = file.stat()
-        return FileEntry(file, kinds, stat.st_mtime, stat.st_size if "folders" not in kinds else 0)
-    except OSError:
-        return FileEntry(file, kinds)
+    return FileEntry(file, kinds, info.st_mtime, info.st_size if "folders" not in kinds else 0,
+                     error_text, online_only, file_stamp(info))
 
 
 def filter_options(entries):

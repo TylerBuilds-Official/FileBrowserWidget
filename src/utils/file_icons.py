@@ -14,6 +14,10 @@ class FileIcons:
     def __init__(self):
         self.provider = QFileIconProvider()
 
+    def generic_icon(self, folder=False):
+        kind = QFileIconProvider.IconType.Folder if folder else QFileIconProvider.IconType.File
+        return self.provider.icon(kind)
+
     def icon(self, file: str | Path) -> QIcon:
         file = Path(file)
         if file.suffix.lower() == ".url":

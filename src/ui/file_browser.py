@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from PyQt6.QtWidgets import QWidget, QScrollArea, QHBoxLayout, QMenu, QPushButton, QStyle
-from PyQt6.QtCore import Qt, pyqtSignal, QStandardPaths
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import QVBoxLayout, QLabel
 
 
@@ -10,6 +10,7 @@ from src.ui.file_name_label import FileNameLabel
 from src.ui.breadcrumbs import Breadcrumbs
 from src.ui.filter_menu import FilterMenu
 from src.utils.favorites import Favorites
+from src.utils.desktop_paths import DesktopPaths
 from src.ui.custom_widgets.file_row_widget import FileRowWidget
 from src.ui.settings.settings_modal import SettingsModal
 from src.ui.keyboard_handler import KeyboardHandler
@@ -23,8 +24,9 @@ class FileBrowser(QWidget):
 
     def __init__(self, parent=None, settings=None):
         super().__init__(parent=parent)
-        self.desktop_folder = Path(QStandardPaths.writableLocation(QStandardPaths.StandardLocation.DesktopLocation)
-                                   or Path.home() / "Desktop")
+        self.desktop_paths = DesktopPaths()
+        self.desktop_folder = self.desktop_paths.primary
+        self._scan_errors = []
         self.current_folder = self.desktop_folder
         self.favorites = Favorites(settings)
         self.preferences = settings
@@ -157,7 +159,13 @@ class FileBrowser(QWidget):
         if scroll_position is None:
             scroll_position = self.scroll_area.verticalScrollBar().value() if folder == self.current_folder else 0
         try:
-            files = self.traverse_level(folder)
+            if folder == self.desktop_folder:
+                if self.desktop_folder == self.desktop_paths.primary:
+                    files, scan_errors = self.desktop_paths.list_files(self.traverse_level)
+                else:
+                    files, scan_errors = self.traverse_level(folder), []
+            else:
+                files, scan_errors = self.traverse_level(folder), []
         except OSError as error:
             self.status_label.setText("Could not open this folder.")
             self.status_label.setToolTip(str(error))
@@ -168,6 +176,8 @@ class FileBrowser(QWidget):
             self.search_edit.clear()
             self.search_edit.blockSignals(False)
         self.entries = [describe_file(file) for file in files]
+        self._scan_errors = [f"{path}: {error}" for path, error in scan_errors]
+        self._scan_errors.extend(f"{entry.path}: {entry.error}" for entry in self.entries if entry.error)
         self._icons.clear()
         previous_filter = self.filter_combo.currentData()
         self.filter_combo.blockSignals(True)
@@ -177,7 +187,7 @@ class FileBrowser(QWidget):
         self.filter_combo.setCurrentIndex(max(0, self.filter_combo.findData(previous_filter)))
         self.filter_combo.blockSignals(False)
         self.current_folder = folder
-        self.title_label.set_name(folder.name or str(folder))
+        self.title_label.set_name("Desktop" if folder == self.desktop_folder else folder.name or str(folder))
         self.title_label.setToolTip(str(folder))
         self.path_label.set_name(str(folder))
         self.path_label.setToolTip(str(folder))
@@ -228,8 +238,10 @@ class FileBrowser(QWidget):
         text = f"{count} item" + ("" if count == 1 else "s")
         if count != len(self.entries):
             text = f"{count} of {len(self.entries)} items"
+        if self._scan_errors:
+            text += f" | {len(self._scan_errors)} unavailable (details)"
         self.status_label.setText(text)
-        self.status_label.setToolTip("")
+        self.status_label.setToolTip("\n".join(self._scan_errors))
 
         while self.file_list_layout.count():
             item = self.file_list_layout.takeAt(0)
@@ -245,7 +257,8 @@ class FileBrowser(QWidget):
 
             return True
 
-        for file in files:
+        for entry in entries:
+            file = entry.path
             file_row = FileRowWidget()
             self.keyboard_handler.register_row(file_row)
             file_row.setObjectName("fileEntry")
@@ -263,11 +276,14 @@ class FileBrowser(QWidget):
             file_layout.setSpacing(10)
 
             if file not in self._icons:
-                self._icons[file] = self.icon_provider.icon(file)
+                if entry.online_only or entry.error:
+                    self._icons[file] = self.icon_provider.generic_icon("folders" in entry.kinds)
+                else:
+                    self._icons[file] = self.icon_provider.icon(file)
             file_icon = self._icons[file]
             icon_label = QLabel()
 
-            show_extension = self.settings_modal.show_extensions or file.is_dir()
+            show_extension = self.settings_modal.show_extensions or "folders" in entry.kinds
             display_name = file.name if show_extension else file.stem
             file_label = FileNameLabel(display_name)
 
