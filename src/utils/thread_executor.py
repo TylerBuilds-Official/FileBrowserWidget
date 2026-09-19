@@ -17,12 +17,14 @@ class Thread(QThread):
     def run(self):
         self.task_complete = False
         self.errors = []
+
         # Retries happen in the worker, so the caller's event loop stays free.
         for _ in range(self.retries + 1):
             try:
                 self.task(*self.args, **self.kwargs)
             except Exception as exc:
                 self.errors.append(exc)
+
             else:
                 self.task_complete = True
                 return
@@ -50,6 +52,7 @@ class ThreadExecutor(QObject):
         self.thread.started.connect(self._on_started)
         self.thread.finished.connect(self._on_finished)
 
+
     def run_task(self):
         # Also guard the interval before the queued finished handler runs.
         if self in self._active_executors:
@@ -58,12 +61,14 @@ class ThreadExecutor(QObject):
         self.thread.task_complete = False
         self.thread.errors = []
         self._active_executors.add(self)
+
         try:
             self.thread.start()
         except Exception as exc:
             self._active_executors.discard(self)
             self.errors.emit([exc])
             self.failed.emit(True)
+
 
     @pyqtSlot()
     def _on_started(self):
@@ -76,6 +81,7 @@ class ThreadExecutor(QObject):
         completed = self.thread.task_complete
         errors = list(self.thread.errors)
         self._active_executors.discard(self)
+
         if completed:
             self.success.emit(True)
         else:

@@ -18,8 +18,13 @@ class FileNameLabel(QLabel):
         self.setText(name)
 
 
-    def resizeEvent(self, event: QResizeEvent) -> None:
-        super().resizeEvent(event)
+    def set_name(self, name: str):
+        self._name = name
+        self.setAccessibleName(name)
         self.setText(self.fontMetrics().elidedText(
             self._name, Qt.TextElideMode.ElideRight, self.contentsRect().width()
         ))
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        super().resizeEvent(event)
+        self.set_name(self._name)
