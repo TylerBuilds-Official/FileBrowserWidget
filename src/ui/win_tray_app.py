@@ -6,6 +6,7 @@ from src.utils.system_theme import SystemTheme
 from src.utils.global_hotkey import GlobalHotkey
 from src.utils.single_instance import SingleInstance
 from src.utils.startup import Startup
+from src.utils.assets import asset
 
 from PyQt6.QtCore import QSettings, QTimer
 from PyQt6.QtGui import QIcon, QAction
@@ -31,9 +32,6 @@ class WinTrayApp(QApplication):
         self.preferences = QSettings("FileBrowserWidget", "FileBrowserWidget")
         self.theme_helper = SystemTheme(self, self.preferences)
 
-        # Assets are resolved independently of the working directory.
-        assets_dir = Path(__file__).resolve().parents[1] / "assets"
-
         # Imported Widgets
         self.file_browser = FileBrowser(settings=self.preferences)
         self.file_browser.setMinWidth(400)
@@ -44,11 +42,9 @@ class WinTrayApp(QApplication):
 
         self.file_browser.settings_modal.theme_mode_changed.connect(self.theme_helper.set_mode)
 
-        icon_path = assets_dir / "filter.ico"
-
         # Tray Icon
         self.tray_icon = QSystemTrayIcon()
-        self.tray_icon.setIcon(QIcon(str(icon_path)))
+        self.tray_icon.setIcon(QIcon(asset("filter.ico")))
         self.tray_icon.show()
         self.tray_icon.setToolTip("File Browser")
 

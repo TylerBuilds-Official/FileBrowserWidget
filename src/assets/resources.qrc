@@ -1,6 +1,10 @@
 <RCC>
     <qresource prefix="/assets">
-            <file>filter.ico</file>
-            <file>dots.png</file>
+        <file>filter.ico</file>
+        <file>styles.qss</file>
+        <file>icons/checkmark-light.svg</file>
+        <file>icons/checkmark-dark.svg</file>
+        <file>icons/chevron-down-light.svg</file>
+        <file>icons/chevron-down-dark.svg</file>
     </qresource>
 </RCC>

@@ -6,6 +6,7 @@ from PyQt6.QtCore import QObject, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QPalette
 
 from src.utils import window_effects
+from src.utils.assets import asset, read_asset
 
 
 # Fluent neutrals, as Windows 11 mixes them over its own flyout surfaces.
@@ -73,10 +74,7 @@ class SystemTheme(QObject):
         self._applying = False
         self.mode = "system"
         self.effective_theme = "light"
-        self._stylesheet = Template(
-            (Path(__file__).resolve().parents[1] / "assets" / "styles.qss")
-            .read_text(encoding="utf-8")
-        )
+        self._stylesheet = Template(read_asset("styles.qss"))
         self.app.styleHints().colorSchemeChanged.connect(self._system_changed)
         saved = settings.value("appearance/theme", "system") if settings is not None else "system"
         self.set_mode(saved if saved in self.MODES else "system")
@@ -110,11 +108,10 @@ class SystemTheme(QObject):
             effective = self.mode
         colors = dict(THEMES[effective])
         colors.update(accent_colors(effective))
-        icons = Path(__file__).resolve().parents[1] / "assets" / "icons"
-        colors["chevron"] = (icons / f"chevron-down-{effective}.svg").as_posix()
+        colors["chevron"] = asset(f"icons/chevron-down-{effective}.svg")
         # checkmark-light.svg is the white glyph and sits on a dark accent fill, and the reverse.
         checkmark = "light" if colors["accent_text"] == "#ffffff" else "dark"
-        colors["checkmark"] = (icons / f"checkmark-{checkmark}.svg").as_posix()
+        colors["checkmark"] = asset(f"icons/checkmark-{checkmark}.svg")
         palette = QPalette()
         roles = {
             "Window": "background", "WindowText": "text", "Base": "surface",
