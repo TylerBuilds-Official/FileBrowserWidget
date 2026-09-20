@@ -7,12 +7,13 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import QPoint, Qt
-from PyQt6.QtGui import QContextMenuEvent
+from PyQt6.QtCore import QEvent, QPoint, QPointF, Qt
+from PyQt6.QtGui import QContextMenuEvent, QDrag, QMouseEvent
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication
 
 from src.ui.file_browser import FileBrowser
+from src.utils import shell_actions
 from src.utils.file_opener import FileOpener
 
 
@@ -126,6 +127,50 @@ class FileNavigationTests(unittest.TestCase):
             self.app.sendEvent(row, event)
             menu.assert_called_once_with(self.file, row.mapToGlobal(local))
 
+    def test_click_opens_on_release_and_a_drag_hands_over_the_file_instead(self):
+        row = self.row_for(self.file)
+        opened = []
+        self.browser.program_clicked.connect(opened.append)
+        QTest.mouseClick(row, Qt.MouseButton.LeftButton, pos=QPoint(8, 8))
+        self.assertEqual(opened, [str(self.file)])
+
+        dragged = []
+        with patch.object(QDrag, "exec", lambda drag, *args: dragged.extend(drag.mimeData().urls())):
+            QTest.mousePress(row, Qt.MouseButton.LeftButton, pos=QPoint(8, 8))
+            move = QMouseEvent(QEvent.Type.MouseMove, QPointF(90, 20), QPointF(90, 20),
+                               Qt.MouseButton.NoButton, Qt.MouseButton.LeftButton,
+                               Qt.KeyboardModifier.NoModifier)
+            self.app.sendEvent(row, move)
+            QTest.mouseRelease(row, Qt.MouseButton.LeftButton, pos=QPoint(90, 20))
+        self.assertEqual([Path(url.toLocalFile()) for url in dragged], [self.file])
+        self.assertEqual(opened, [str(self.file)])
+
+    def test_context_menu_copies_deletes_and_opens_properties(self):
+        with patch("src.ui.file_browser.shell_actions.recycle", return_value="") as recycle:
+            self.choose_action(self.file, "Delete")
+            recycle.assert_called_once_with(self.file)
+        with patch("src.ui.file_browser.shell_actions.recycle", return_value="Windows could not delete this item."):
+            self.choose_action(self.file, "Delete")
+        self.assertEqual(self.browser.status_label.text(), "Windows could not delete this item.")
+        with patch("src.ui.file_browser.shell_actions.show_properties", return_value="") as properties:
+            self.choose_action(self.file, "Properties")
+            properties.assert_called_once_with(self.file)
+        self.choose_action(self.file, "Copy")
+        urls = QApplication.clipboard().mimeData().urls()
+        self.assertEqual([Path(url.toLocalFile()) for url in urls], [self.file])
+
+    def test_keyboard_copy_and_delete_use_the_focused_row(self):
+        self.show_browser()
+        row = self.row_for(self.file)
+        row.setFocus()
+        with patch("src.ui.file_browser.shell_actions.recycle", return_value="") as recycle:
+            QTest.keyClick(row, Qt.Key.Key_Delete)
+            recycle.assert_called_once_with(self.file)
+        self.browser.settings_button.setFocus()
+        with patch("src.ui.file_browser.shell_actions.recycle", return_value="") as recycle:
+            QTest.keyClick(self.browser.settings_button, Qt.Key.Key_Delete)
+            recycle.assert_not_called()
+
     def test_open_location_opens_containing_folder(self):
         with patch.object(FileOpener, "open_file") as open_file:
             FileOpener.open_file_location(self.file)
@@ -157,6 +202,24 @@ class FileNavigationTests(unittest.TestCase):
         self.browser.open_item(self.folder)
         self.assertEqual(self.browser.forward_history, [])
         self.assertFalse(self.browser.forward_button.isEnabled())
+
+    def test_failed_navigation_leaves_the_shown_folder_refreshing(self):
+        self.show_browser()
+        self.browser.mark_dirty()
+        self.assertTrue(self.browser.refresh_timer.isActive())
+        with patch.object(self.browser, "traverse_level", side_effect=PermissionError("No access")):
+            self.browser.open_item(self.folder)
+        self.assertTrue(self.browser.refresh_timer.isActive())
+        self.assertTrue(self.browser._dirty)
+        self.assertTrue(self.browser._loaded)
+
+    def test_cancelling_windows_delete_is_not_an_error(self):
+        with patch("src.utils.shell_actions.ctypes.WinDLL") as library:
+            library.return_value.SHFileOperationW.return_value = shell_actions.DE_OPCANCELLED
+            self.assertEqual(shell_actions.recycle(self.file), "")
+            library.return_value.SHFileOperationW.return_value = 5
+            self.assertIn("error 5", shell_actions.recycle(self.file))
+        self.assertEqual(shell_actions.recycle(self.root / "gone.txt"), "That item no longer exists.")
 
     def test_failed_forward_keeps_history_and_refresh_does_not_clear_it(self):
         self.browser.open_item(self.folder)

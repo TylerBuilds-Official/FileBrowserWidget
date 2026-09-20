@@ -20,6 +20,8 @@ class KeyboardHandler(QObject):
             ("Alt+Home", browser.go_home),
             ("F5", browser.refresh_files),
             ("Ctrl+R", browser.refresh_files),
+            ("Ctrl+C", browser.copy_focused),
+            ("Delete", browser.delete_focused),
             ("Up", lambda: self.move_focus(-1)),
             ("Down", lambda: self.move_focus(1)),
             ("Home", lambda: self.move_focus(0, edge=True)),
