@@ -8,6 +8,8 @@ class Startup:
     """Manage only this app's current-user Windows startup entry."""
 
     RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+    # Task Manager's Startup tab disables entries here and leaves RUN_KEY untouched.
+    APPROVED_KEY = r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run"
     VALUE_NAME = "FileBrowserWidget"
 
     def __init__(self):
@@ -38,9 +40,28 @@ class Startup:
         try:
             with reg.OpenKey(reg.HKEY_CURRENT_USER, self.RUN_KEY) as key:
                 command, _ = reg.QueryValueEx(key, self.VALUE_NAME)
-                return bool(command)
+                return bool(command) and self.is_approved()
         except FileNotFoundError:
             return False
+
+    def is_approved(self):
+        """Windows stores a Task Manager veto separately; an odd first byte means disabled."""
+        reg = self.registry
+        try:
+            with reg.OpenKey(reg.HKEY_CURRENT_USER, self.APPROVED_KEY) as key:
+                state, _ = reg.QueryValueEx(key, self.VALUE_NAME)
+        except FileNotFoundError:
+            return True
+        return not (state and state[0] & 1)
+
+    def clear_approval(self):
+        """Drop the veto so turning the setting back on actually starts the app."""
+        reg = self.registry
+        try:
+            with reg.OpenKey(reg.HKEY_CURRENT_USER, self.APPROVED_KEY, 0, reg.KEY_SET_VALUE) as key:
+                reg.DeleteValue(key, self.VALUE_NAME)
+        except FileNotFoundError:
+            pass
 
     def set_enabled(self, enabled):
         if self.registry is None:
@@ -50,6 +71,7 @@ class Startup:
             command = self.command()
             with reg.CreateKeyEx(reg.HKEY_CURRENT_USER, self.RUN_KEY, 0, reg.KEY_SET_VALUE) as key:
                 reg.SetValueEx(key, self.VALUE_NAME, 0, reg.REG_SZ, command)
+            self.clear_approval()
         else:
             try:
                 with reg.OpenKey(reg.HKEY_CURRENT_USER, self.RUN_KEY, 0, reg.KEY_SET_VALUE) as key:

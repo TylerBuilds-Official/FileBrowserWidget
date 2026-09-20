@@ -6,6 +6,7 @@ import time
 import unittest
 from ctypes import wintypes
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 from uuid import uuid4
 
@@ -15,6 +16,7 @@ from PyQt6.QtCore import QByteArray
 from PyQt6.QtWidgets import QApplication
 
 from src.app import main
+from src.ui.win_tray_app import WinTrayApp
 from src.utils.global_hotkey import GlobalHotkey
 from src.utils.single_instance import SingleInstance
 
@@ -144,10 +146,30 @@ instance.close()
                 app.is_primary = True
                 app.exec.return_value = 0
                 self.assertEqual(main(arguments), 0)
-                app_class.assert_called_once_with(show_on_start=show)
+                app_class.assert_called_once_with(user_launch=show)
                 app.exec.assert_called_once()
                 app.global_hotkey.unregister.assert_called_once()
                 app.instance.close.assert_called_once()
+
+    def test_launching_announces_the_app_once_and_never_opens_the_panel(self):
+        preferences = Mock()
+        preferences.value.return_value = False
+        app = SimpleNamespace(preferences=preferences, tray_icon=Mock(),
+                              global_hotkey=SimpleNamespace(sequence="Alt+B", error=""))
+        WinTrayApp.show_intro(app)
+        app.tray_icon.showMessage.assert_called_once()
+        self.assertIn("Alt+B", app.tray_icon.showMessage.call_args.args[1])
+        preferences.setValue.assert_called_once_with("intro/shown", True)
+
+        app.tray_icon.showMessage.reset_mock()
+        preferences.value.return_value = True
+        WinTrayApp.show_intro(app)
+        app.tray_icon.showMessage.assert_not_called()
+
+        preferences.value.return_value = False
+        app.global_hotkey = SimpleNamespace(sequence="Alt+B", error="Alt+B could not be registered.")
+        WinTrayApp.show_intro(app)
+        app.tray_icon.showMessage.assert_not_called()
 
     def test_secondary_exits_without_starting_an_event_loop(self):
         with patch("src.app.WinTrayApp") as app_class:

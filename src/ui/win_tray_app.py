@@ -15,11 +15,11 @@ from PyQt6.QtWidgets import (QMenu,
 
 
 class WinTrayApp(QApplication):
-    def __init__(self, show_on_start=True):
+    def __init__(self, user_launch=True):
         super().__init__([])
         self.setQuitOnLastWindowClosed(False)
         self.instance = SingleInstance(self)
-        self.is_primary = self.instance.start_or_notify(show=show_on_start)
+        self.is_primary = self.instance.start_or_notify(show=user_launch)
         if not self.is_primary:
             return
         self.aboutToQuit.connect(self.instance.close)
@@ -83,8 +83,8 @@ class WinTrayApp(QApplication):
         saved_hotkey = self.preferences.value("shortcuts/open", "Alt+B")
         if not self.set_hotkey(saved_hotkey):
             QTimer.singleShot(1000, self.show_hotkey_error)
-        if show_on_start:
-            QTimer.singleShot(0, self.show_browser)
+        if user_launch:
+            QTimer.singleShot(0, self.show_intro)
 
 
     def refresh_startup_state(self):
@@ -135,12 +135,31 @@ class WinTrayApp(QApplication):
             self.show_browser()
 
     def show_browser(self):
-        self.file_browser.settings_modal.hide_settings(animated=False)
-        self.file_browser.ensure_loaded()
-        self.file_browser.show()
+        browser = self.file_browser
+        browser.settings_modal.hide_settings(animated=False)
+        if not browser.isVisible():
+            browser.reset_location()
+        scanning = browser.needs_scan()
+        if scanning:
+            browser.show_scanning()
+        browser.show()
         self.reposition_popup()
-        self.file_browser.raise_()
-        self.file_browser.activateWindow()
+        browser.raise_()
+        browser.activateWindow()
+        if scanning:
+            # Put the panel on screen first; reading a cold folder takes a moment.
+            QTimer.singleShot(0, browser.ensure_loaded)
+
+    def show_intro(self):
+        """Starting the app leaves the panel closed, so say once where it went."""
+        if self.preferences.value("intro/shown", False, type=bool):
+            return
+        if self.global_hotkey.error:
+            return  # The shortcut warning already says the app is running.
+        self.preferences.setValue("intro/shown", True)
+        self.tray_icon.showMessage("File Browser is running",
+                                  f"Open it from the tray icon or with {self.global_hotkey.sequence}.",
+                                  QSystemTrayIcon.MessageIcon.Information)
 
     def show_hotkey_error(self):
         self.tray_icon.showMessage("File Browser", self.global_hotkey.error,

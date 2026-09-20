@@ -13,6 +13,10 @@ class GlobalHotkey(QAbstractNativeEventFilter):
     WM_HOTKEY = 0x0312
     MOD_ALT = 0x0001
     MOD_NOREPEAT = 0x4000
+    # Windows hands a registered combination to us alone, so these stay off limits.
+    RESERVED = ("Ctrl+A", "Ctrl+C", "Ctrl+F", "Ctrl+N", "Ctrl+O", "Ctrl+P", "Ctrl+S",
+                "Ctrl+T", "Ctrl+V", "Ctrl+W", "Ctrl+X", "Ctrl+Y", "Ctrl+Z",
+                "Ctrl+F4", "Alt+F4")
 
     def __init__(self, app, callback):
         super().__init__()
@@ -49,13 +53,16 @@ class GlobalHotkey(QAbstractNativeEventFilter):
             virtual_key = 0x70 + int(key) - int(Qt.Key.Key_F1)
         else:
             raise ValueError("Use a letter, number, or function key (except F12).")
+        sequence = keys.toString(QKeySequence.SequenceFormat.PortableText)
+        if sequence in GlobalHotkey.RESERVED:
+            raise ValueError(f"{sequence} belongs to Windows and most apps. Add Shift, or choose another key.")
         native_modifiers = GlobalHotkey.MOD_NOREPEAT
         for qt_modifier, native in ((Qt.KeyboardModifier.AltModifier, 1),
                                     (Qt.KeyboardModifier.ControlModifier, 2),
                                     (Qt.KeyboardModifier.ShiftModifier, 4)):
             if modifiers & qt_modifier:
                 native_modifiers |= native
-        return keys.toString(QKeySequence.SequenceFormat.PortableText), native_modifiers, virtual_key
+        return sequence, native_modifiers, virtual_key
 
     def register(self, sequence="Alt+B"):
         try:

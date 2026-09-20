@@ -60,6 +60,18 @@ class StartupAndHotkeyTests(unittest.TestCase):
         hotkey.user32.RegisterHotKey.assert_not_called()
         hotkey.user32.UnregisterHotKey.assert_not_called()
 
+    def test_reserved_shortcuts_are_refused(self):
+        hotkey = self.hotkey()
+        hotkey.register()
+        hotkey.user32.reset_mock()
+        for sequence in ("Ctrl+C", "Ctrl+V", "Ctrl+Z", "Alt+F4"):
+            with self.subTest(sequence=sequence):
+                self.assertFalse(hotkey.register(sequence))
+                self.assertIn("belongs to Windows", hotkey.error)
+        hotkey.user32.RegisterHotKey.assert_not_called()
+        self.assertEqual(hotkey.sequence, "Alt+B")
+        self.assertTrue(hotkey.register("Ctrl+Shift+C"))
+
     def test_function_key_conversion(self):
         self.assertEqual(GlobalHotkey.key_codes("Ctrl+Alt+F24"), ("Ctrl+Alt+F24", 0x4003, 0x87))
 
@@ -114,6 +126,19 @@ class StartupAndHotkeyTests(unittest.TestCase):
         startup.set_enabled(False)
         self.assertEqual(reg.DeleteValue.call_args.args[1], "FileBrowserWidget")
         reg.DeleteKey.assert_not_called()
+
+    def test_startup_disabled_in_task_manager_reads_as_off_and_is_cleared(self):
+        startup = self.startup()
+        reg = startup.registry
+        command = '"C:/App/pythonw.exe" "C:/App/launch.pyw" --background'
+        reg.QueryValueEx.side_effect = [(command, 1), (b"\x03\x00\x00\x00", 3)]
+        self.assertFalse(startup.is_enabled())
+        reg.QueryValueEx.side_effect = [(command, 1), (b"\x02\x00\x00\x00", 3)]
+        self.assertTrue(startup.is_enabled())
+        with patch.object(startup, "command", return_value=command):
+            startup.set_enabled(True)
+        self.assertEqual(reg.OpenKey.call_args.args[1], startup.APPROVED_KEY)
+        self.assertEqual(reg.DeleteValue.call_args.args[1], "FileBrowserWidget")
 
     def test_startup_read_missing_and_permission_error(self):
         startup = self.startup()

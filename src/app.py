@@ -11,10 +11,10 @@ def show_exception(error_type, error, traceback):
 def main(argv=None):
     parser = argparse.ArgumentParser(description="File Browser tray utility")
     parser.add_argument("--background", action="store_true",
-                        help="Start in the tray without opening the browser (for Windows Startup).")
+                        help="Start without announcing the app or opening a running one (for Windows Startup).")
     args = parser.parse_args(argv)
     sys.excepthook = show_exception
-    app = WinTrayApp(show_on_start=not args.background)
+    app = WinTrayApp(user_launch=not args.background)
     if not app.is_primary:
         return 0
     try:

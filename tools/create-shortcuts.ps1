@@ -14,7 +14,7 @@ $shortcutDirectory = [System.IO.Path]::GetFullPath($OutputDirectory)
 New-Item -ItemType Directory -Path $shortcutDirectory -Force | Out-Null
 $shell = New-Object -ComObject WScript.Shell
 foreach ($entry in @(
-    @{ Name = 'File Browser.lnk'; Arguments = ''; Description = 'Open File Browser (Alt+B while running)' },
+    @{ Name = 'File Browser.lnk'; Arguments = ''; Description = 'Start File Browser in the tray, or open it if it is already running' },
     @{ Name = 'File Browser (Startup).lnk'; Arguments = ' --background'; Description = 'Start File Browser quietly in the system tray' }
 )) {
     $shortcutPath = Join-Path $shortcutDirectory $entry.Name
