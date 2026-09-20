@@ -7,13 +7,13 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtCore import QObject, Qt, QSettings, pyqtSignal
-from PyQt6.QtGui import QPalette
+from PyQt6.QtGui import QColor, QPalette
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication
 
 from src.ui.file_browser import FileBrowser
 from src.ui.settings.settings_modal import SettingsModal
-from src.utils.system_theme import SystemTheme
+from src.utils.system_theme import SystemTheme, accent_colors, contrast
 
 
 class FakeStyleHints(QObject):
@@ -84,6 +84,20 @@ class ThemeAndSettingsTests(unittest.TestCase):
             self.assertEqual(fallback.mode, "system")
             for obj in (helper, restored, fallback):
                 obj.deleteLater()
+
+    def test_accent_uses_a_shade_the_surface_can_carry(self):
+        # A dark accent, as Windows shades it: lightest first, the user's own colour in the middle.
+        shades = [QColor(value) for value in ("#036ad2", "#0358af", "#024b96", "#023f7d",
+                                              "#013264", "#01254b", "#001428")]
+        with patch("src.utils.system_theme.accent_shades", return_value=shades):
+            dark, light = accent_colors("dark"), accent_colors("light")
+        self.assertEqual(dark["accent_fill"], "#0358af")
+        self.assertEqual(light["accent_fill"], "#013264")
+        # #023f7d is the user's own accent but it disappears on #202020, so dark steps lighter.
+        self.assertEqual(dark["accent"], "#036ad2")
+        self.assertEqual(light["accent"], "#023f7d")
+        self.assertEqual(dark["accent_text"], "#ffffff")
+        self.assertGreater(contrast(QColor(dark["accent"]), QColor("#202020")), 3)
 
     def test_all_preferences_restore(self):
         modal = SettingsModal(settings=self.settings)

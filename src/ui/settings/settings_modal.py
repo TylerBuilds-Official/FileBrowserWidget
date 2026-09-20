@@ -37,7 +37,7 @@ class SettingsModal(QWidget):
         self.layout.setSpacing(16)
         title_layout = QHBoxLayout()
         title_layout.setSpacing(12)
-        self.close_button = FluentIconButton("arrow-left", "Back to files")
+        self.close_button = FluentIconButton("back", "Back to files")
         self.close_button.setToolTip("Back to files (Esc)")
         self.close_button.setAccessibleName("Back to files")
         self.close_button.clicked.connect(lambda: self.hide_settings())
@@ -65,7 +65,7 @@ class SettingsModal(QWidget):
         for label, value in (("Use system setting", "system"), ("Light", "light"), ("Dark", "dark")):
             self.theme_combo.addItem(label, value)
         self._restore_combo(self.theme_combo, "appearance/theme", "system")
-        self._card(settings_layout, "App theme", "Choose how File Browser looks.", self.theme_combo)
+        self._card(settings_layout, "App theme", "How File Browser looks.", self.theme_combo)
 
         self._section(settings_layout, "Window")
         self.docking_combo = SmoothComboBox()
@@ -78,17 +78,21 @@ class SettingsModal(QWidget):
         ):
             self.docking_combo.addItem(label, position)
         self._restore_combo(self.docking_combo, "window/docking", "bottom_right")
-        self._card(settings_layout, "Docking position", "Place the panel on the screen with your tray.", self.docking_combo)
+        self._card(settings_layout, "Docking position", "Where the panel opens.", self.docking_combo)
 
         self._section(settings_layout, "Files")
-        self.extensions_check = QCheckBox("Show file extensions")
+        self.extensions_check = QCheckBox()
         self.extensions_check.setObjectName("settingsExtensionsCheck")
+        self.extensions_check.setAccessibleName("Show file extensions")
         if settings is not None:
             self.extensions_check.setChecked(settings.value("files/show_extensions", False, type=bool))
-        self._card(settings_layout, "File names", "Include endings such as .txt and .pdf.", self.extensions_check)
+        self._card(settings_layout, "Show file extensions", "Include endings such as .txt and .pdf.",
+                   self.extensions_check)
         self._section(settings_layout, "Startup and shortcuts")
-        self.startup_check = QCheckBox("Start with Windows")
-        self._card(settings_layout, "Startup", "Start quietly in the tray when you sign in.", self.startup_check)
+        self.startup_check = QCheckBox()
+        self.startup_check.setAccessibleName("Start with Windows")
+        self._card(settings_layout, "Start with Windows", "Runs quietly in the tray when you sign in.",
+                   self.startup_check)
         hotkey_controls = QWidget()
         hotkey_layout = QHBoxLayout(hotkey_controls)
         hotkey_layout.setContentsMargins(0, 0, 0, 0)
@@ -96,12 +100,15 @@ class SettingsModal(QWidget):
         self.hotkey_edit = QKeySequenceEdit(QKeySequence(saved_hotkey))
         self.hotkey_edit.setMaximumSequenceLength(1)
         self.hotkey_edit.setAccessibleName("Open browser shortcut")
+        self.hotkey_edit.setFixedWidth(104)
         self.hotkey_reset = QPushButton("Reset")
         self.hotkey_reset.setToolTip("Reset shortcut to Alt+B")
-        hotkey_layout.addWidget(self.hotkey_edit, 1)
+        hotkey_controls.setToolTip("Ctrl or Alt with a letter, number, or function key other than F12. "
+                                   "Shift is optional. Combinations Windows and other apps rely on are refused.")
+        hotkey_layout.setSpacing(8)
+        hotkey_layout.addWidget(self.hotkey_edit)
         hotkey_layout.addWidget(self.hotkey_reset)
-        self._card(settings_layout, "Open browser shortcut",
-                   "Press Ctrl or Alt with a letter, number, or function key (except F12). Shift is optional.",
+        self._card(settings_layout, "Open browser shortcut", "Ctrl or Alt plus a letter, number, or F-key.",
                    hotkey_controls)
         self.integration_status = QLabel("")
         self.integration_status.setWordWrap(True)
@@ -138,21 +145,28 @@ class SettingsModal(QWidget):
 
     @staticmethod
     def _card(layout, title, description, control):
+        """One Windows 11 settings row: wording on the left, the control on the right."""
         card = QWidget()
         card.setProperty("role", "settingCard")
         card.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(14, 12, 14, 12)
-        card_layout.setSpacing(6)
+        card.setMinimumHeight(54)
+        card_layout = QHBoxLayout(card)
+        card_layout.setContentsMargins(14, 8, 14, 8)
+        card_layout.setSpacing(16)
+        wording = QVBoxLayout()
+        wording.setSpacing(2)
         label = QLabel(title)
         label.setProperty("role", "settingTitle")
         label.setBuddy(control)
         detail = QLabel(description)
         detail.setProperty("role", "secondary")
         detail.setWordWrap(True)
-        card_layout.addWidget(label)
-        card_layout.addWidget(detail)
-        card_layout.addWidget(control)
+        wording.addWidget(label)
+        wording.addWidget(detail)
+        card_layout.addLayout(wording, 1)
+        if not control.accessibleName():
+            control.setAccessibleName(title)
+        card_layout.addWidget(control, 0, Qt.AlignmentFlag.AlignVCenter)
         layout.addWidget(card)
 
     def _restore_combo(self, combo, key, default):

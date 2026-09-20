@@ -1,5 +1,6 @@
-from PyQt6.QtCore import QObject, QEvent, QVariantAnimation, QEasingCurve, Qt
-from PyQt6.QtWidgets import QApplication, QComboBox, QListView, QAbstractItemView
+from PyQt6.QtCore import QObject, QEvent, QTimer, QVariantAnimation, QEasingCurve, Qt
+from PyQt6.QtWidgets import (QApplication, QComboBox, QListView, QAbstractItemView,
+                             QAbstractScrollArea)
 
 
 class ScrollAxis(QObject):
@@ -54,12 +55,34 @@ class SmoothScroll(QObject):
         self.horizontal = ScrollAxis(area.horizontalScrollBar(), self)
         for widget in (area, area.viewport(), area.verticalScrollBar(), area.horizontalScrollBar()):
             widget.installEventFilter(self)
+        # Owned by this object, so a pending re-check dies with the area instead of outliving it.
+        self.rail_timer = QTimer(self)
+        self.rail_timer.setSingleShot(True)
+        self.rail_timer.timeout.connect(self.recheck_rail)
+        self.expand_rail(False)
+
+    def recheck_rail(self):
+        self.expand_rail(self.area.underMouse())
 
     def stop(self):
         self.vertical.stop()
         self.horizontal.stop()
 
+    def expand_rail(self, expanded):
+        """Windows thickens its hairline rail while the pointer is anywhere over the list."""
+        for bar in (self.vertical.bar, self.horizontal.bar):
+            value = "true" if expanded else "false"
+            if bar.property("expanded") != value:
+                bar.setProperty("expanded", value)
+                bar.style().unpolish(bar)
+                bar.style().polish(bar)
+
     def eventFilter(self, watched, event):
+        if event.type() == QEvent.Type.Enter:
+            self.expand_rail(True)
+        elif event.type() in (QEvent.Type.Leave, QEvent.Type.Hide):
+            # A move between the list and the bar leaves one and enters the other, so re-check.
+            self.rail_timer.start()
         if event.type() in (QEvent.Type.Hide, QEvent.Type.KeyPress, QEvent.Type.MouseButtonPress):
             self.stop()
         if event.type() != QEvent.Type.Wheel:
@@ -96,6 +119,11 @@ class SmoothComboBox(QComboBox):
     def wheelEvent(self, event):
         if self.view().isVisible():
             super().wheelEvent(event)
-        else:
-            # Let a settings page scroll without changing the value under it.
-            event.ignore()
+            return
+        # Scroll the page the box sits on instead of changing the value under the cursor.
+        event.ignore()
+        area = self.parentWidget()
+        while area is not None and not isinstance(area, QAbstractScrollArea):
+            area = area.parentWidget()
+        if area is not None:
+            QApplication.sendEvent(area.viewport(), event)

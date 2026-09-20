@@ -3,11 +3,11 @@ import unittest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import QPoint, QPointF, Qt
+from PyQt6.QtCore import QEvent, QPoint, QPointF, Qt
 from PyQt6.QtGui import QWheelEvent
-from PyQt6.QtWidgets import QApplication, QScrollArea, QWidget
+from PyQt6.QtWidgets import QApplication, QScrollArea, QVBoxLayout, QWidget
 from PyQt6.QtTest import QTest
-from src.ui.smooth_scroll import SmoothScroll
+from src.ui.smooth_scroll import SmoothScroll, SmoothComboBox
 
 
 class SmoothScrollTests(unittest.TestCase):
@@ -60,6 +60,42 @@ class SmoothScrollTests(unittest.TestCase):
         position = self.bar.value()
         QTest.qWait(200)
         self.assertEqual(self.bar.value(), position)
+
+    def test_rail_thickens_while_the_pointer_is_over_the_list(self):
+        bar = self.area.verticalScrollBar()
+        self.area.setAttribute(Qt.WidgetAttribute.WA_UnderMouse, True)
+        self.app.sendEvent(self.area.viewport(), QEvent(QEvent.Type.Enter))
+        self.assertEqual(bar.property("expanded"), "true")
+        self.area.setAttribute(Qt.WidgetAttribute.WA_UnderMouse, False)
+        self.app.sendEvent(self.area.viewport(), QEvent(QEvent.Type.Leave))
+        QTest.qWait(30)
+        self.assertEqual(bar.property("expanded"), "false")
+
+    def test_wheel_over_a_closed_combo_scrolls_the_page(self):
+        area = QScrollArea()
+        content = QWidget()
+        layout = QVBoxLayout(content)
+        combo = SmoothComboBox()
+        combo.addItems(["one", "two", "three"])
+        layout.addWidget(combo)
+        filler = QWidget()
+        filler.setFixedHeight(2000)
+        layout.addWidget(filler)
+        area.setWidget(content)
+        area.resize(200, 300)
+        scroll = SmoothScroll(area)
+        area.show()
+        self.app.processEvents()
+        self.addCleanup(area.deleteLater)
+        self.addCleanup(area.hide)
+        event = QWheelEvent(QPointF(combo.rect().center()), QPointF(20, 20), QPoint(0, 0), QPoint(0, -120),
+                            Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier,
+                            Qt.ScrollPhase.NoScrollPhase, False)
+        self.app.sendEvent(combo, event)
+        QTest.qWait(250)
+        self.assertEqual(combo.currentIndex(), 0)
+        self.assertGreater(area.verticalScrollBar().value(), 0)
+        self.assertEqual(scroll.vertical.bar, area.verticalScrollBar())
 
     def test_reverse_and_bounds(self):
         self.bar.setValue(100)

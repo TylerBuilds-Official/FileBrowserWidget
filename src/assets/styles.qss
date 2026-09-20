@@ -1,57 +1,75 @@
-/* Theme tokens are supplied by utils/system_theme.py. */
+/* Theme tokens are supplied by utils/system_theme.py.
+ * Sizes follow the Windows 11 type ramp and control metrics: body 14px, caption 12px,
+ * subtitle 20px semibold; 4px corners on controls, 8px on cards and flyouts. */
 QWidget {
-    font-family: "Segoe UI";
-    font-size: 10pt;
+    font-family: "Segoe UI Variable Text", "Segoe UI";
+    font-size: 14px;
     color: $text;
 }
 QWidget#fileBrowser, QWidget#settingsModal {
     background-color: $background;
-    border: 1px solid $border;
+    border: 1px solid $edge;
+}
+QWidget#filterMenu {
+    background-color: $surface;
+    border: 1px solid $edge;
+    border-radius: 8px;
 }
 QWidget#browserContent, QWidget#fileList, QWidget#settingsContent,
 QScrollArea, QScrollArea > QWidget > QWidget {
     background: transparent;
     border: none;
 }
+QWidget#browserHeader { background: transparent; border: none; border-bottom: 1px solid $border; }
 QLabel { background: transparent; border: none; }
 QLabel#fileBrowserTitle, QLabel#settingsModalTitle {
-    font-size: 18pt;
+    font-family: "Segoe UI Variable Display", "Segoe UI";
+    font-size: 20px;
     font-weight: 600;
 }
-QLabel[role="secondary"], QLabel#fileBrowserEmpty { color: $muted; }
-QLabel[role="section"] { font-weight: 600; padding-top: 8px; }
-QLabel[role="settingTitle"] { font-weight: 600; }
+QLabel[role="secondary"], QLabel#fileBrowserEmpty { color: $muted; font-size: 12px; }
+QLabel[role="section"] { font-weight: 600; padding-top: 12px; }
+QLabel[role="settingTitle"] { font-weight: 400; }
 QWidget[role="settingCard"] {
     background-color: $surface;
     border: 1px solid $border;
-    border-radius: 6px;
+    border-radius: 4px;
 }
 QPushButton {
     background: $surface;
     border: 1px solid $border;
+    border-bottom: 1px solid $edge;
     border-radius: 4px;
-    padding: 6px 12px;
-    min-height: 20px;
+    padding: 3px 8px;
+    min-height: 14px;
 }
 QPushButton:hover { background: $hover; }
-QPushButton:pressed { background: $pressed; }
-QPushButton:focus { border-color: $accent; }
-QPushButton#filterButton { padding: 0 6px; min-height: 0; }
-QPushButton#filterButton:checked { background: $selection; border-color: $accent; }
+QPushButton:pressed { background: $pressed; color: $muted; }
+QPushButton:disabled { color: $muted; }
+QPushButton:focus { border: 2px solid $accent; }
 QPushButton[role="iconButton"] {
+    font-family: "Segoe Fluent Icons", "Segoe MDL2 Assets";
+    font-size: 14px;
     background: transparent;
     border: 1px solid transparent;
     padding: 0;
-    min-height: 0;
+    min-width: 26px;
+    max-width: 26px;
+    min-height: 26px;
+    max-height: 26px;
 }
 QPushButton[role="iconButton"]:hover { background: $hover; }
-QPushButton[role="iconButton"]:focus { border-color: $accent; }
+QPushButton[role="iconButton"]:pressed { background: $pressed; }
+QPushButton[role="iconButton"]:focus { border: 2px solid $accent; }
+QPushButton[role="iconButton"]:disabled { color: $muted; }
+QPushButton[role="iconButton"][pinned="true"] { color: $accent; }
+QPushButton[role="iconButton"][quiet="true"] { color: transparent; }
 QComboBox {
     background: $surface;
     border: 1px solid $border;
-    border-bottom: 1px solid $muted;
+    border-bottom: 1px solid $edge;
     border-radius: 4px;
-    padding: 7px 32px 7px 10px;
+    padding: 3px 32px 3px 11px;
     min-height: 20px;
 }
 QComboBox::drop-down {
@@ -67,27 +85,29 @@ QComboBox:focus { border-bottom: 2px solid $accent; }
 QComboBox QAbstractItemView {
     background: $surface;
     color: $text;
-    border: 1px solid $border;
+    border: 1px solid $edge;
+    border-radius: 8px;
     padding: 4px;
     selection-background-color: $selection;
     selection-color: $text;
     outline: none;
 }
-QComboBox QAbstractItemView::item { min-height: 30px; padding: 2px 8px; }
-QCheckBox { background: transparent; spacing: 10px; min-height: 28px; }
+QComboBox QAbstractItemView::item { min-height: 32px; border-radius: 4px; padding: 2px 8px; }
+QCheckBox { background: transparent; spacing: 12px; min-height: 28px; }
 QCheckBox::indicator {
     width: 18px;
     height: 18px;
     border: 1px solid $muted;
-    border-radius: 3px;
+    border-radius: 4px;
     background: $surface;
 }
-QCheckBox::indicator:hover { background: $hover; border-color: $accent; }
+QCheckBox::indicator:hover { background: $hover; }
 QCheckBox::indicator:checked {
-    background: $accent;
-    border-color: $accent;
+    background: $accent_fill;
+    border-color: $accent_fill;
     image: url("$checkmark");
 }
+QCheckBox::indicator:checked:hover { background: $accent; border-color: $accent; }
 QCheckBox:focus { color: $accent; }
 QWidget#fileEntry {
     background: transparent;
@@ -95,26 +115,52 @@ QWidget#fileEntry {
     border-radius: 4px;
 }
 QWidget#fileEntry:hover { background: $hover; }
-QWidget#fileEntry:focus { background: $selection; border-color: $accent; }
-QLabel#fileEntryName, QLabel#fileEntryIcon { background: transparent; border: none; }
+QWidget#fileEntry:focus { background: $selection; border: 1px solid $accent; }
+QLabel#fileEntryName, QLabel#fileEntryIcon { background: transparent; border: none; font-size: 14px; }
 QLabel#fileBrowserEmpty { padding: 20px 0; }
-QScrollBar:vertical { background: transparent; width: 8px; margin: 2px; }
-QScrollBar::handle:vertical { background: $scrollbar; border-radius: 2px; min-height: 36px; }
-QScrollBar::handle:vertical:hover { background: $muted; }
+QLabel#browserPath { font-size: 12px; }
+/* Windows 11 leaves a hairline rail until the pointer is over the list, then thickens it.
+ * The 12px track stays grabbable at any thumb width, and the margin keeps the rail clear
+ * of whatever sits directly above the list. */
+QScrollBar:vertical { background: transparent; width: 12px; margin: 6px 0 6px 0; }
+QScrollBar::handle:vertical {
+    background: $scrollbar;
+    border-radius: 1px;
+    min-height: 28px;
+    margin: 0 5px;
+}
+QScrollBar[expanded="true"]::handle:vertical,
+QScrollBar::handle:vertical:hover,
+QScrollBar::handle:vertical:pressed { background: $muted; border-radius: 3px; margin: 0 3px; }
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
 QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: transparent; }
-QMenu { background: $surface; border: 1px solid $border; padding: 4px; }
-QMenu::item { padding: 7px 28px 7px 12px; border-radius: 3px; }
-QMenu::item:selected { background: $selection; }
-QMenu::separator { height: 1px; background: $border; margin: 4px 8px; }
-QToolTip { background: $surface; color: $text; border: 1px solid $border; padding: 6px; }
-
-QLineEdit, QKeySequenceEdit {
+QLineEdit {
     background: $surface;
     border: 1px solid $border;
     border-bottom: 1px solid $muted;
     border-radius: 4px;
-    padding: 7px 10px;
+    padding: 3px 11px;
     min-height: 20px;
+    selection-background-color: $accent_fill;
+    selection-color: $accent_text;
 }
-QLineEdit:focus, QKeySequenceEdit:focus { border-bottom: 2px solid $accent; }
+QLineEdit:focus { border-bottom: 2px solid $accent; }
+QKeySequenceEdit QLineEdit { min-height: 20px; }
+QMenu {
+    background: $surface;
+    border: 1px solid $edge;
+    border-radius: 8px;
+    padding: 4px;
+}
+QMenu::item { padding: 6px 28px 6px 12px; border-radius: 4px; }
+QMenu::item:selected { background: $hover; }
+QMenu::item:disabled { color: $muted; }
+QMenu::separator { height: 1px; background: $border; margin: 4px 8px; }
+QToolTip {
+    background: $surface;
+    color: $text;
+    border: 1px solid $edge;
+    border-radius: 4px;
+    font-size: 12px;
+    padding: 5px 8px;
+}

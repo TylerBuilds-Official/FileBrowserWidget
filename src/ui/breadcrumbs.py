@@ -5,6 +5,8 @@ from PyQt6.QtCore import Qt, QEvent, pyqtSignal
 from PyQt6.QtGui import QCursor, QPalette
 from PyQt6.QtWidgets import QLabel, QMenu, QSizePolicy
 
+from src.utils import window_effects
+
 
 class Breadcrumbs(QLabel):
     folder_clicked = pyqtSignal(object)
@@ -40,7 +42,10 @@ class Breadcrumbs(QLabel):
                 break
             start += 1
         self.hidden_paths = self.paths[:start]
-        color = self.palette().color(QPalette.ColorRole.Link).name()
+        # Explorer's address bar is body text with muted separators, not blue links.
+        color = self.palette().color(QPalette.ColorRole.WindowText).name()
+        separator = (f'<span style="color:{self.palette().color(QPalette.ColorRole.PlaceholderText).name()}">'
+                     " › </span>")
 
         def link(label, target):
             return f'<a href="{target}" style="color:{color}; text-decoration:none">{escape(label)}</a>'
@@ -52,7 +57,7 @@ class Breadcrumbs(QLabel):
             if index == start == len(labels) - 1:
                 label = metrics.elidedText(label, Qt.TextElideMode.ElideMiddle, available)
             links.append(link(label, index))
-        self.setText(" › ".join(links))
+        self.setText(separator.join(links))
 
     def open_link(self, target):
         if target == "more":
@@ -61,6 +66,7 @@ class Breadcrumbs(QLabel):
                 action = menu.addAction(path.name or str(path))
                 action.setToolTip(str(path))
                 action.triggered.connect(lambda checked=False, path=path: self.folder_clicked.emit(path))
+            window_effects.style_window(menu)
             menu.exec(QCursor.pos())
             menu.deleteLater()
         else:
