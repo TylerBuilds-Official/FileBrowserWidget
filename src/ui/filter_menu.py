@@ -1,17 +1,24 @@
 from src.ui.smooth_scroll import SmoothComboBox
+from src.utils import window_effects
 
-from PyQt6.QtWidgets import (QMenu, QWidget, QWidgetAction, QVBoxLayout, QHBoxLayout,
+from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout,
                             QLineEdit, QComboBox, QLabel, QPushButton)
 
 
-class FilterMenu(QMenu):
+class FilterMenu(QWidget):
     """Search and view options in a popup, without taking space from the list."""
+
+    closed = pyqtSignal()
 
     def __init__(self, parent=None, settings=None):
         super().__init__(parent)
         self.setObjectName("filterMenu")
-        panel = QWidget()
-        layout = QVBoxLayout(panel)
+        # A popup window rather than a QMenu: QMenu turns Tab into menu navigation,
+        # which leaves the dropdowns below unreachable from the keyboard.
+        self.setWindowFlags(Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 10, 12, 10)
         layout.setSpacing(8)
         self.search_edit = QLineEdit()
@@ -47,16 +54,34 @@ class FilterMenu(QMenu):
         buttons.addStretch()
         buttons.addWidget(self.done_button)
         layout.addLayout(buttons)
-        action = QWidgetAction(self)
-        action.setDefaultWidget(panel)
-        self.addAction(action)
         self.done_button.clicked.connect(self.close)
         self.search_edit.returnPressed.connect(self.close)
 
     def open_at(self, button):
         self.setFixedWidth(min(340, button.window().width() - 24))
+        self.adjustSize()
         position = button.mapToGlobal(button.rect().bottomRight())
         position.setX(position.x() - self.width())
-        self.popup(position)
+        self.move(position)
+        self.show()
+        window_effects.style_window(self)
+        self.raise_()
         self.search_edit.setFocus()
         self.search_edit.selectAll()
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Escape:
+            self.close()
+            return
+        super().keyPressEvent(event)
+
+    def mousePressEvent(self, event):
+        # An open popup receives the clicks meant for everything behind it.
+        if not self.rect().contains(event.position().toPoint()):
+            self.close()
+            return
+        super().mousePressEvent(event)
+
+    def hideEvent(self, event):
+        super().hideEvent(event)
+        self.closed.emit()

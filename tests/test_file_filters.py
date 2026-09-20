@@ -7,7 +7,7 @@ from uuid import uuid4
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QPoint, Qt
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication
 
@@ -42,6 +42,10 @@ class FileFilterTests(unittest.TestCase):
         layout = self.browser.file_list_layout
         return [Path(layout.itemAt(i).widget().toolTip()).name for i in range(layout.count())]
 
+    def search(self, text):
+        self.browser.search_edit.setText(text)
+        QTest.qWait(FileBrowser.SEARCH_DELAY + 50)
+
     def test_options_only_include_detected_types(self):
         values = dict((value, label) for label, value in filter_options(self.browser.entries))
         self.assertIn("games", values)
@@ -64,9 +68,26 @@ class FileFilterTests(unittest.TestCase):
             info.return_value.symLinkTarget.return_value = "C:/Apps/Editor.exe"
             self.assertIn("programs", describe_file(link).kinds)
 
+    def test_unreadable_item_keeps_the_type_its_name_gives_it(self):
+        locked = self.root / "Locked"
+        locked.mkdir()
+        real_stat = Path.stat
+
+        def deny_locked(path, *args, **kwargs):
+            if path == locked:
+                raise PermissionError("Access is denied")
+            return real_stat(path, *args, **kwargs)
+
+        with patch.object(Path, "stat", deny_locked):
+            self.browser.create_list_items(force=True)
+        self.assertEqual(self.browser._entry_cache[locked].kinds, {"no_extension"})
+        labels = [label for label, value in filter_options(self.browser.entries)]
+        self.assertIn("No extension (1)", labels)
+        self.assertNotIn(" (1)", labels)
+
     def test_search_combines_with_filter_without_rescanning(self):
         with patch.object(self.browser, "traverse_level") as scan:
-            self.browser.search_edit.setText("GAME")
+            self.search("GAME")
             self.assertEqual(self.names(), ["Game.url"])
             self.browser.filter_combo.setCurrentIndex(self.browser.filter_combo.findData("programs"))
             self.assertEqual(self.browser.status_label.text(), "0 of 5 items")
@@ -108,7 +129,7 @@ class FileFilterTests(unittest.TestCase):
         self.app.processEvents()
         self.assertTrue(self.browser.filter_menu.isVisible())
         self.assertEqual(self.browser.scroll_area.geometry(), before)
-        self.browser.search_edit.setText("Notes")
+        self.search("Notes")
         self.browser.filter_menu.done_button.click()
         self.assertFalse(self.browser.filter_menu.isVisible())
         self.assertTrue(self.browser.filter_button.isChecked())
@@ -132,6 +153,25 @@ class FileFilterTests(unittest.TestCase):
         QTest.keyClick(combo, Qt.Key.Key_Escape)
         self.assertFalse(self.browser.filter_menu.isVisible())
         self.assertTrue(self.browser.isVisible())
+
+    def test_filter_popup_reaches_its_dropdowns_from_the_keyboard(self):
+        self.browser.show()
+        self.browser.activateWindow()
+        self.browser.focus_search()
+        self.app.processEvents()
+        self.assertEqual(self.app.focusWidget(), self.browser.search_edit)
+        QTest.keyClick(self.browser.search_edit, Qt.Key.Key_Tab)
+        self.assertEqual(self.app.focusWidget(), self.browser.filter_combo)
+        QTest.keyClick(self.browser.filter_combo, Qt.Key.Key_Tab)
+        self.assertEqual(self.app.focusWidget(), self.browser.sort_combo)
+
+    def test_clicking_outside_closes_the_filter_popup(self):
+        self.browser.show()
+        self.browser.focus_search()
+        self.app.processEvents()
+        self.assertTrue(self.browser.filter_menu.isVisible())
+        QTest.mouseClick(self.browser.filter_menu, Qt.MouseButton.LeftButton, pos=QPoint(-40, -40))
+        self.assertFalse(self.browser.filter_menu.isVisible())
 
     def test_hiding_browser_closes_popup(self):
         self.browser.show()

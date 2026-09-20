@@ -53,8 +53,25 @@ class FavoritesTests(unittest.TestCase):
         self.assertTrue(saved.contains(self.last))
         self.assertEqual(saved.files()[0].name, "Zebra.txt")
         self.browser.search_edit.setText("Alpha")
+        QTest.qWait(FileBrowser.SEARCH_DELAY + 50)
         self.assertEqual(layout.count(), 1)
         self.assertEqual(layout.itemAt(0).widget().toolTip(), str(self.first))
+
+    def test_star_is_shown_when_pinned_and_hidden_until_the_row_is_used(self):
+        self.browser.show()
+        self.browser.activateWindow()
+        self.app.processEvents()
+        layout = self.browser.file_list_layout
+        rows = {layout.itemAt(i).widget().toolTip(): layout.itemAt(i).widget() for i in range(layout.count())}
+        quiet = rows[str(self.first)]
+        self.assertEqual(quiet.star_button.property("quiet"), "true")
+        quiet.setFocus()
+        self.assertEqual(quiet.star_button.property("quiet"), "false")
+        self.browser.toggle_favorite(self.last)
+        pinned = next(layout.itemAt(i).widget() for i in range(layout.count())
+                      if layout.itemAt(i).widget().toolTip() == str(self.last))
+        self.assertEqual(pinned.star_button.property("pinned"), "true")
+        self.assertEqual(pinned.star_button.property("quiet"), "false")
 
     def test_favorites_open_across_folders_and_missing_can_be_removed(self):
         self.browser.toggle_favorite(self.last)

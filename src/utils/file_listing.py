@@ -45,10 +45,16 @@ def file_stamp(info):
             getattr(info, "st_file_attributes", 0))
 
 
+def extension_kinds(file):
+    """The kind an entry gets from its name alone, for when its metadata cannot be read."""
+    extension = Path(file).suffix.lower()
+    return {"ext:" + extension} if extension else {"no_extension"}
+
+
 def describe_file(file, info=None):
     file = Path(file)
     extension = file.suffix.lower()
-    kinds = {"ext:" + extension} if extension else {"no_extension"}
+    kinds = extension_kinds(file)
     try:
         info = info if info is not None else file.stat()
     except OSError as error:
