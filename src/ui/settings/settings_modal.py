@@ -1,11 +1,14 @@
-from PyQt6.QtCore import Qt, QEvent, QPoint, QPropertyAnimation, QEasingCurve, pyqtSignal
+from PyQt6.QtCore import Qt, QEvent, QPoint, QPropertyAnimation, QSize, pyqtSignal
 from PyQt6.QtWidgets import (QLabel, QHBoxLayout, QCheckBox,
                              QComboBox, QVBoxLayout, QWidget, QScrollArea, QKeySequenceEdit, QPushButton)
-from PyQt6.QtGui import QKeySequence
+from PyQt6.QtGui import QIcon, QKeySequence
 
 
+from src.ui import motion
 from src.ui.custom_widgets.fluent_icon_button import FluentIconButton
 from src.ui.smooth_scroll import SmoothScroll, SmoothComboBox
+from src.utils.assets import asset
+from src.version import VERSION
 
 
 class SettingsModal(QWidget):
@@ -14,8 +17,11 @@ class SettingsModal(QWidget):
     theme_mode_changed = pyqtSignal(str)
     startup_changed = pyqtSignal(bool)
     hotkey_changed = pyqtSignal(str)
+    hover_behavior_changed = pyqtSignal(str)
     opened = pyqtSignal()
     closed = pyqtSignal()
+
+    ABOUT_ICON = 32
 
     def __init__(self, parent=None, settings=None):
         super().__init__(parent)
@@ -25,18 +31,18 @@ class SettingsModal(QWidget):
         self.setWindowTitle("Settings")
         self._closing = False
         self._animation = QPropertyAnimation(self, b"pos", self)
-        self._animation.setDuration(180)
-        self._animation.setEasingCurve(QEasingCurve.Type.OutCubic)
         self._animation.finished.connect(self._finish_animation)
         if parent is not None:
             parent.installEventFilter(self)
         self.hide()
 
         self.layout = QVBoxLayout(self)
-        self.layout.setContentsMargins(20, 20, 20, 16)
+        # The list's rail sits 12px in from the panel edge; this one lines up with it.
+        self.layout.setContentsMargins(20, 20, 12, 16)
         self.layout.setSpacing(16)
         title_layout = QHBoxLayout()
         title_layout.setSpacing(12)
+        title_layout.setContentsMargins(0, 0, 8, 0)
         self.close_button = FluentIconButton("back", "Back to files")
         self.close_button.setToolTip("Back to files (Esc)")
         self.close_button.setAccessibleName("Back to files")
@@ -88,6 +94,20 @@ class SettingsModal(QWidget):
             self.extensions_check.setChecked(settings.value("files/show_extensions", False, type=bool))
         self._card(settings_layout, "Show file extensions", "Include endings such as .txt and .pdf.",
                    self.extensions_check)
+        self.hover_combo = SmoothComboBox()
+        self.hover_combo.setObjectName("settingsHoverCombo")
+        self.hover_combo.setAccessibleName("Folder hover")
+        for label, value in (("Nothing", "none"), ("Cascade contents", "cascade")):
+            self.hover_combo.addItem(label, value)
+        self._restore_combo(self.hover_combo, "files/hover_behavior", "none")
+        self._card(settings_layout, "Folder hover", "What resting on a folder does.", self.hover_combo)
+        self.reopen_check = QCheckBox()
+        self.reopen_check.setObjectName("settingsReopenCheck")
+        self.reopen_check.setAccessibleName("Reopen where I left off")
+        if settings is not None:
+            self.reopen_check.setChecked(settings.value("files/reopen_last", False, type=bool))
+        self._card(settings_layout, "Reopen where I left off", "Come back to the last folder instead of the Desktop.",
+                   self.reopen_check)
         self._section(settings_layout, "Startup and shortcuts")
         self.startup_check = QCheckBox()
         self.startup_check.setAccessibleName("Start with Windows")
@@ -114,6 +134,29 @@ class SettingsModal(QWidget):
         self.integration_status.setWordWrap(True)
         self.integration_status.setProperty("role", "secondary")
         settings_layout.addWidget(self.integration_status)
+        # Windows utilities keep their mark for an About card at the end, not the chrome.
+        self._section(settings_layout, "About")
+        about = QWidget()
+        about.setProperty("role", "settingCard")
+        about.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        about_layout = QHBoxLayout(about)
+        about_layout.setContentsMargins(14, 10, 14, 10)
+        about_layout.setSpacing(14)
+        self.about_icon = QLabel()
+        self.about_icon.setObjectName("settingsAboutIcon")
+        self.about_icon.setAccessibleName("File Browser logo")
+        self._render_about_icon()
+        about_layout.addWidget(self.about_icon, 0, Qt.AlignmentFlag.AlignVCenter)
+        about_wording = QVBoxLayout()
+        about_wording.setSpacing(2)
+        about_name = QLabel("File Browser")
+        about_name.setProperty("role", "settingTitle")
+        self.about_version = QLabel(f"Version {VERSION}")
+        self.about_version.setProperty("role", "secondary")
+        about_wording.addWidget(about_name)
+        about_wording.addWidget(self.about_version)
+        about_layout.addLayout(about_wording, 1)
+        settings_layout.addWidget(about)
         settings_layout.addStretch()
         footer = QLabel("Changes apply automatically")
         footer.setProperty("role", "secondary")
@@ -122,6 +165,8 @@ class SettingsModal(QWidget):
         self.theme_combo.currentIndexChanged.connect(self._theme_changed)
         self.docking_combo.currentIndexChanged.connect(self.emit_docking_position_changed)
         self.extensions_check.stateChanged.connect(self.emit_refresh)
+        self.hover_combo.currentIndexChanged.connect(self._hover_changed)
+        self.reopen_check.toggled.connect(lambda checked: self._save("files/reopen_last", checked))
         self.startup_check.toggled.connect(self.startup_changed.emit)
         self.hotkey_edit.editingFinished.connect(self._hotkey_edited)
         self.hotkey_reset.clicked.connect(lambda: self.hotkey_changed.emit("Alt+B"))
@@ -178,9 +223,18 @@ class SettingsModal(QWidget):
         if self.settings is not None:
             self.settings.setValue(key, value)
 
+    def _render_about_icon(self):
+        """The mark at card height, drawn for the screen the panel is on."""
+
+        icon = QIcon(asset("logo/fb_icon_header.png"))
+        self.about_icon.setPixmap(icon.pixmap(QSize(self.ABOUT_ICON * 2, self.ABOUT_ICON), self.devicePixelRatioF()))
+
     def show_settings(self):
+        """Slide in over the files from the right, decelerating, as a Settings page drills in."""
+
         parent = self.parentWidget()
         self._animation.stop()
+        self._render_about_icon()
         self._closing = False
         if parent is not None:
             self.setGeometry(parent.rect())
@@ -189,16 +243,27 @@ class SettingsModal(QWidget):
         self.raise_()
         self.opened.emit()
         self.close_button.setFocus()
+        length = motion.duration(motion.SLOW)
+        if length == 0:
+            self.move(0, 0)
+            return
+        self._animation.setDuration(length)
+        self._animation.setEasingCurve(motion.DECELERATE)
         self._animation.setStartValue(self.pos())
         self._animation.setEndValue(QPoint(0, 0))
         self._animation.start()
 
     def hide_settings(self, animated=True):
+        """Leave the way it came, accelerating, and only then give the files back."""
+
         self._animation.stop()
-        if not animated or self.isHidden() or self.parentWidget() is None:
+        length = motion.duration(motion.NORMAL)
+        if not animated or length == 0 or self.isHidden() or self.parentWidget() is None:
             self._close()
             return
         self._closing = True
+        self._animation.setDuration(length)
+        self._animation.setEasingCurve(motion.ACCELERATE)
         self._animation.setStartValue(self.pos())
         self._animation.setEndValue(QPoint(self.parentWidget().width(), 0))
         self._animation.start()
@@ -231,6 +296,10 @@ class SettingsModal(QWidget):
         self._save("window/docking", self.docking_position)
         self.docking_position_changed.emit()
 
+    def _hover_changed(self):
+        self._save("files/hover_behavior", self.hover_behavior)
+        self.hover_behavior_changed.emit(self.hover_behavior)
+
     def _theme_changed(self):
         self._save("appearance/theme", self.theme_mode)
         self.theme_mode_changed.emit(self.theme_mode)
@@ -246,3 +315,11 @@ class SettingsModal(QWidget):
     @property
     def show_extensions(self):
         return self.extensions_check.isChecked()
+
+    @property
+    def hover_behavior(self) -> str:
+        return self.hover_combo.currentData()
+
+    @property
+    def reopen_last(self) -> bool:
+        return self.reopen_check.isChecked()

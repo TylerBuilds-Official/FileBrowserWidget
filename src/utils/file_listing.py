@@ -92,6 +92,34 @@ def describe_file(file, info=None):
                      error_text, online_only, file_stamp(info))
 
 
+def list_folder(folder: str | Path, hidden_attribute: int = 0x2) -> list[FileEntry]:
+    """Folders first, then files by name, without reading shortcut targets or icons.
+
+    Windows hands scandir each entry's attributes with the directory itself, so this costs
+    one enumeration rather than a stat per file, which matters on a share.
+    """
+
+    entries = []
+    with os.scandir(folder) as found:
+        for item in found:
+            file = Path(item.path)
+            try:
+                info = item.stat()
+                is_folder = item.is_dir()
+            except OSError as error:
+                entries.append(FileEntry(file, extension_kinds(file), error=str(error)))
+                continue
+            attributes = getattr(info, "st_file_attributes", 0)
+            if attributes & hidden_attribute:
+                continue
+            kinds = {"folders"} if is_folder else extension_kinds(file)
+            online_only = bool(attributes & (0x1000 | 0x40000 | 0x400000))
+            entries.append(FileEntry(file, kinds, info.st_mtime, 0, "", online_only, file_stamp(info)))
+    entries.sort(key=lambda entry: ("folders" not in entry.kinds, entry.path.name.casefold(), str(entry.path)))
+
+    return entries
+
+
 def filter_options(entries):
     counts = {}
     for entry in entries:

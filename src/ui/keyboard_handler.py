@@ -1,3 +1,5 @@
+from time import monotonic
+
 from PyQt6.QtCore import QObject, QEvent, Qt
 from PyQt6.QtGui import QKeySequence, QShortcut
 
@@ -7,10 +9,15 @@ from src.ui.custom_widgets.file_row_widget import FileRowWidget
 class KeyboardHandler(QObject):
     """Browser shortcuts and file-row keyboard input, owned by the browser."""
 
+    TYPE_SECONDS = 1.0
+
     def __init__(self, browser):
         super().__init__(browser)
         self.browser = browser
         self.shortcuts = []
+        self.typed = ""
+        self.typed_at = 0.0
+        browser.installEventFilter(self)  # Letters typed anywhere in the panel reach the list.
         for key, action in (
             ("Ctrl+F", browser.focus_search),
             ("Alt+Left", browser.go_back),
@@ -22,6 +29,10 @@ class KeyboardHandler(QObject):
             ("Ctrl+R", browser.refresh_files),
             ("Ctrl+C", browser.copy_focused),
             ("Delete", browser.delete_focused),
+            ("Alt+Return", browser.properties_focused),
+            ("Alt+Enter", browser.properties_focused),
+            ("Right", lambda: browser.cascade.open_focused()),
+            ("Left", lambda: browser.cascade.close()),
             ("Up", lambda: self.move_focus(-1)),
             ("Down", lambda: self.move_focus(1)),
             ("Home", lambda: self.move_focus(0, edge=True)),
@@ -40,10 +51,18 @@ class KeyboardHandler(QObject):
     def register_row(self, row):
         row.installEventFilter(self)
 
-    def move_focus(self, step, edge=False):
+    def rows(self) -> list[FileRowWidget]:
         layout = self.browser.file_list_layout
-        rows = [layout.itemAt(i).widget() for i in range(layout.count())
+
+        return [layout.itemAt(i).widget() for i in range(layout.count())
                 if isinstance(layout.itemAt(i).widget(), FileRowWidget)]
+
+    def focus_row(self, row: FileRowWidget):
+        row.setFocus(Qt.FocusReason.ShortcutFocusReason)
+        self.browser.scroll_area.ensureWidgetVisible(row)
+
+    def move_focus(self, step, edge=False):
+        rows = self.rows()
         if not rows:
             return
         focused = self.browser.focusWidget()
@@ -53,8 +72,38 @@ class KeyboardHandler(QObject):
             index = max(0, min(len(rows) - 1, rows.index(focused) + step))
         else:
             index = 0 if step > 0 else len(rows) - 1
-        rows[index].setFocus(Qt.FocusReason.ShortcutFocusReason)
-        self.browser.scroll_area.ensureWidgetVisible(rows[index])
+        self.focus_row(rows[index])
+
+    def jump_to_typed(self, text: str) -> bool:
+        """Typing a name's first letters moves focus to it, as Explorer does; search stays Ctrl+F.
+
+        Letters typed within a second build a prefix. The same letter again steps through
+        the names starting with it.
+        """
+
+        now = monotonic()
+        if now - self.typed_at > self.TYPE_SECONDS:
+            self.typed = ""
+        self.typed_at = now
+        letter = text.casefold()
+        cycling = bool(self.typed) and self.typed == self.typed[0] * len(self.typed) and letter == self.typed[0]
+        self.typed = self.typed + letter
+        prefix = letter if cycling else self.typed
+        rows = self.rows()
+        if not rows:
+            return False
+        focused = self.browser.focusWidget()
+        start = rows.index(focused) if focused in rows else -1
+        # A single letter means the next such name, as in Explorer; a longer prefix may stay put.
+        if cycling or len(prefix) == 1 or start < 0:
+            start += 1
+        for offset in range(len(rows)):
+            row = rows[(start + offset) % len(rows)]
+            if row.path.name.casefold().startswith(prefix):
+                self.focus_row(row)
+                return True
+
+        return False
 
     def close_panel(self):
         if self.browser.settings_modal.isVisible():
@@ -66,6 +115,17 @@ class KeyboardHandler(QObject):
         else:
             self.browser.hide()
 
+    def is_typing(self, event) -> bool:
+        """A plain printable key, meant for the list rather than a control or a shortcut."""
+
+        text = event.text()
+        if not text or not text.isprintable() or text.isspace():
+            return False
+        if event.modifiers() & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.AltModifier):
+            return False
+
+        return not self.browser.settings_modal.isVisible()
+
     def eventFilter(self, watched, event):
         if event.type() == QEvent.Type.KeyPress and isinstance(watched, FileRowWidget):
             if event.modifiers() == Qt.KeyboardModifier.NoModifier and event.key() in (
@@ -74,4 +134,7 @@ class KeyboardHandler(QObject):
                 if not event.isAutoRepeat():
                     watched.clicked.emit()
                 return True
+        elif event.type() == QEvent.Type.KeyPress and watched is self.browser and self.is_typing(event):
+            self.jump_to_typed(event.text())
+            return True
         return super().eventFilter(watched, event)

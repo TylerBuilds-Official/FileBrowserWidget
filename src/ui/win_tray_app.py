@@ -7,6 +7,8 @@ from src.utils.global_hotkey import GlobalHotkey
 from src.utils.single_instance import SingleInstance
 from src.utils.startup import Startup
 from src.utils.assets import asset
+from src.ui import motion
+from src.version import VERSION
 
 from PyQt6.QtCore import QSettings, QTimer
 from PyQt6.QtGui import QIcon, QAction
@@ -29,6 +31,7 @@ class WinTrayApp(QApplication):
         self.ui_functions = UIFunctions(self)
 
         self.setApplicationName("File Browser")
+        self.setApplicationVersion(VERSION)
         self.preferences = QSettings("FileBrowserWidget", "FileBrowserWidget")
         self.theme_helper = SystemTheme(self, self.preferences)
 
@@ -42,9 +45,12 @@ class WinTrayApp(QApplication):
 
         self.file_browser.settings_modal.theme_mode_changed.connect(self.theme_helper.set_mode)
 
+        self.logo = QIcon(asset("logo/fb_icon.ico"))
+        self.setWindowIcon(self.logo)
+
         # Tray Icon
         self.tray_icon = QSystemTrayIcon()
-        self.tray_icon.setIcon(QIcon(asset("filter.ico")))
+        self.tray_icon.setIcon(self.logo)
         self.tray_icon.show()
         self.tray_icon.setToolTip("File Browser")
 
@@ -61,10 +67,6 @@ class WinTrayApp(QApplication):
         self.quit_action = QAction(text="Quit")
         self.quit_action.triggered.connect(self.kill_app)
         self.menu.addAction(self.quit_action)
-
-        self.test_action = QAction(text="Test")
-        self.test_action.triggered.connect(self.test_func_connection)
-        self.menu.addAction(self.test_action)
 
         # add menu to tray
         self.tray_icon.setContextMenu(self.menu)
@@ -119,22 +121,37 @@ class WinTrayApp(QApplication):
         self.quit()
 
     def hotkey_activated(self):
-        editor = self.file_browser.settings_modal.hotkey_edit
+        """The shortcut opens the panel and, while it is open, closes it again."""
+
+        browser = self.file_browser
+        editor = browser.settings_modal.hotkey_edit
         # Windows consumes the active combination before the recorder sees it.
         if editor.isVisible() and (editor.hasFocus() or editor.isAncestorOf(self.focusWidget())):
             editor.setKeySequence(self.global_hotkey.sequence)
             return
-        self.show_browser()
+        if browser.isVisible():
+            browser.hide()
+        else:
+            self.show_browser()
 
     def tray_click_router(self, reason):
-        if reason == QSystemTrayIcon.ActivationReason.Trigger:
+        """A tray click toggles the panel; the press that closed it is not also an open."""
+
+        if reason != QSystemTrayIcon.ActivationReason.Trigger:
+            return
+        browser = self.file_browser
+        if browser.isVisible():
+            browser.hide()
+        elif not browser.dismissed_by_press_in(self.tray_icon.geometry()):
             self.show_browser()
 
     def show_browser(self):
         browser = self.file_browser
         browser.settings_modal.hide_settings(animated=False)
-        if not browser.isVisible():
+        arriving = not browser.isVisible()
+        if arriving:
             browser.reset_location()
+            browser.prepare_arrival()
         scanning = browser.needs_scan()
         if scanning:
             browser.show_scanning()
@@ -142,6 +159,8 @@ class WinTrayApp(QApplication):
         self.reposition_popup()
         browser.raise_()
         browser.activateWindow()
+        if arriving:
+            browser.arrive()
         if scanning:
             # Put the panel on screen first; reading a cold folder takes a moment.
             QTimer.singleShot(0, browser.ensure_loaded)
@@ -162,7 +181,14 @@ class WinTrayApp(QApplication):
                                   QSystemTrayIcon.MessageIcon.Warning)
 
     def reposition_popup(self):
-        self.file_browser.move(self.ui_functions.get_popup_pos())
+        """A docking change glides the showing panel to its new corner; otherwise just place it."""
+
+        browser = self.file_browser
+        target = self.ui_functions.get_popup_pos()
+        if browser.isVisible() and browser.windowOpacity() == 1.0:
+            motion.travel(browser, target, motion.SLOW)
+        else:
+            browser.move(target)
 
     def open_file(self, signal):
         self.ui_functions.open_file(Path(signal))
@@ -173,7 +199,3 @@ class WinTrayApp(QApplication):
         self.file_browser.status_label.setToolTip(details)
         self.tray_icon.showMessage("Could not open item", details,
                                   QSystemTrayIcon.MessageIcon.Warning)
-
-    def test_func_connection(self):
-        print("Test func called")
-        print(self.ui_functions.get_popup_pos())

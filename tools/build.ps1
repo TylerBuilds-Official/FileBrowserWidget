@@ -9,7 +9,7 @@
     never end up inside the frozen app: two Qt bindings in one bundle break the build.
 #>
 param(
-    [string]$Version = "0.1.0",
+    [string]$Version,
     [string]$Iscc,
     [switch]$SkipResources,
     [switch]$SkipInstaller
@@ -19,6 +19,11 @@ $ErrorActionPreference = 'Stop'
 $root = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $python = Join-Path $root '.venv\Scripts\python.exe'
 if (-not (Test-Path -LiteralPath $python)) { throw "Create the project .venv first: $python is missing." }
+if (-not $Version) {
+    $match = Select-String -LiteralPath (Join-Path $root 'src\version.py') -Pattern 'VERSION = "([^"]+)"'
+    if (-not $match) { throw 'src\version.py has no VERSION = "x.y.z" line.' }
+    $Version = $match.Matches[0].Groups[1].Value
+}
 
 if (-not $SkipResources) {
     Write-Host '== Compiling Qt resources ==' -ForegroundColor Cyan
@@ -55,7 +60,7 @@ Write-Host '== Freezing the app ==' -ForegroundColor Cyan
 Push-Location $root
 try {
     & $python -m PyInstaller --noconfirm --clean --windowed --name FileBrowser `
-        --icon src\assets\filter.ico `
+        --icon src\assets\logo\fb_icon.ico `
         --exclude-module PySide6 --exclude-module PySide2 --exclude-module PyQt5 `
         --exclude-module tkinter --exclude-module pytest `
         launch.pyw

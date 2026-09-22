@@ -1,6 +1,7 @@
 <RCC>
     <qresource prefix="/assets">
-        <file>filter.ico</file>
+        <file>logo/fb_icon.ico</file>
+        <file>logo/fb_icon_header.png</file>
         <file>styles.qss</file>
         <file>icons/checkmark-light.svg</file>
         <file>icons/checkmark-dark.svg</file>

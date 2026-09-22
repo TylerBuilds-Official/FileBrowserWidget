@@ -1,9 +1,9 @@
 ; File Browser installer. Build with tools\build.ps1, or compile this directly with
-;   ISCC.exe /DMyAppVersion=0.1.0 installer\FileBrowser.iss
+;   ISCC.exe /DMyAppVersion=0.1.1 installer\FileBrowser.iss
 ; after PyInstaller has produced dist\FileBrowser.
 
 #ifndef MyAppVersion
-  #define MyAppVersion "0.1.0"
+  #define MyAppVersion "0.1.1"
 #endif
 #define MyAppName "File Browser"
 #define MyAppPublisher "TylerBuilds"
@@ -36,7 +36,7 @@ RestartApplications=no
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
-SetupIconFile={#SourcePath}\..\src\assets\filter.ico
+SetupIconFile={#SourcePath}\..\src\assets\logo\fb_icon.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 UninstallDisplayName={#MyAppName}
 OutputDir={#SourcePath}\Output

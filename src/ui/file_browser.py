@@ -2,15 +2,21 @@ from collections import deque
 from pathlib import Path
 from time import monotonic
 
+from PyQt6 import sip
 from PyQt6.QtWidgets import QWidget, QScrollArea, QHBoxLayout, QMenu, QPushButton, QApplication
-from PyQt6.QtCore import Qt, QEvent, QMimeData, QSize, QUrl, pyqtSignal, QFileSystemWatcher, QTimer
+from PyQt6.QtCore import Qt, QEvent, QMimeData, QPoint, QRect, QSize, QUrl, pyqtSignal, QFileSystemWatcher, QTimer
+from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import QVBoxLayout, QLabel
 
 
+from src.ui import motion
 from src.ui.custom_widgets.fluent_icon_button import FluentIconButton
+from src.ui.custom_widgets.ghost import Ghost
+from src.ui.custom_widgets.page_transition import PageTransition
 from src.ui.file_name_label import FileNameLabel
 from src.ui.breadcrumbs import Breadcrumbs
 from src.ui.filter_menu import FilterMenu
+from src.ui.folder_cascade import FolderCascade
 from src.ui.smooth_scroll import SmoothScroll
 from src.utils.favorites import Favorites
 from src.utils.desktop_paths import DesktopPaths
@@ -18,6 +24,7 @@ from src.ui.custom_widgets.file_row_widget import FileRowWidget
 from src.ui.settings.settings_modal import SettingsModal
 from src.ui.keyboard_handler import KeyboardHandler
 from src.utils.file_icons import FileIcons
+from src.utils.icon_reader import IconReader
 from src.utils.file_listing import (FileEntry, describe_file, extension_kinds, file_stamp,
                                     filter_options, visible_entries)
 from src.utils import shell_actions, window_effects
@@ -30,8 +37,10 @@ class FileBrowser(QWidget):
     RESCAN_SECONDS = 30
     SEARCH_DELAY = 120
     CACHE_LIMIT = 2000
-    ICON_BATCH = 4
+    ICON_BATCH = 8
     HIDDEN_ATTRIBUTE = 0x2
+    SLIDE = 24
+    DISMISS_SECONDS = 0.5
 
     def __init__(self, parent=None, settings=None):
         super().__init__(parent=parent)
@@ -77,12 +86,12 @@ class FileBrowser(QWidget):
 
         self._generic_icons = {}
         self._icon_queue = deque()
-        self.icon_timer = QTimer(self)
-        self.icon_timer.setInterval(0)
-        self.icon_timer.timeout.connect(self.fill_icons)
+        self._icon_reading = False
 
         self.folder_history = []
         self.forward_history = []
+        self._arrival = None
+        self._dismissed = (0.0, QPoint())
 
         self.setObjectName("fileBrowser")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
@@ -91,8 +100,10 @@ class FileBrowser(QWidget):
             Qt.WindowType.Popup |
             Qt.WindowType.FramelessWindowHint
         )
+        self.ghost = Ghost(self)
 
         self.icon_provider = FileIcons()
+        self.icon_reader = IconReader(self.icon_provider)
         outer_layout = QVBoxLayout(self)
         outer_layout.setContentsMargins(0, 0, 0, 0)
         self.content = QWidget()
@@ -196,10 +207,19 @@ class FileBrowser(QWidget):
         self.settings_modal.opened.connect(lambda: self.content.setEnabled(False))
         self.settings_modal.closed.connect(self._settings_closed)
         self.keyboard_handler = KeyboardHandler(self)
+        self.cascade = FolderCascade(self)
+        self.cascade.set_behavior(self.settings_modal.hover_behavior)
+        self.settings_modal.hover_behavior_changed.connect(self.cascade.set_behavior)
         # Rebuilding the list on every keystroke is too slow in a large folder.
         self.search_edit.textChanged.connect(self.search_timer.start)
         self.filter_combo.currentIndexChanged.connect(self.apply_filters)
         self.sort_combo.currentIndexChanged.connect(self.sort_changed)
+        if settings is not None and self.settings_modal.reopen_last:
+            saved = settings.value("files/last_folder", "")
+            if saved:
+                # Not checked here: a stat on a dead share would stall the start. Opening it reports.
+                self.current_folder = Path(saved)
+                self.show_location(self.current_folder)
 
 
 
@@ -259,7 +279,9 @@ class FileBrowser(QWidget):
             self.watcher.removePaths(self.watcher.directories())
 
     def reset_location(self):
-        """Reopen on the Desktop the way the shell's own chevron menus do."""
+        """Reopen on the Desktop the way the shell's own chevron menus do, unless asked to stay put."""
+        if self.settings_modal.reopen_last:
+            return
         # History goes even when the panel was closed on the Desktop it walked back to.
         self.folder_history.clear()
         self.forward_history.clear()
@@ -398,6 +420,8 @@ class FileBrowser(QWidget):
         self.current_folder = folder
         self.show_location(folder)
         self.watch_folder()
+        if not rescan and self.preferences is not None and self.settings_modal.reopen_last:
+            self.preferences.setValue("files/last_folder", str(folder))
         if force:
             self._rendered_state = None
         self.render_entries(scroll_position)
@@ -484,6 +508,7 @@ class FileBrowser(QWidget):
         # The star buttons take focus too, so keep whatever inside a surviving row had it.
         if focused is not None and self.isAncestorOf(focused) and focused.isVisibleTo(self):
             focused.setFocus()
+        self.read_icons()  # Once per render, so the first batch is a full one.
 
         self.restore_scroll_position(scroll_position)
         return True
@@ -492,11 +517,13 @@ class FileBrowser(QWidget):
         file = entry.path
         file_row = FileRowWidget()
         self.keyboard_handler.register_row(file_row)
+        self.cascade.register_row(file_row)
         file_row.setObjectName("fileEntry")
         file_row.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         file_row.setFixedHeight(40)
         file_row.setToolTip(str(file))
         file_row.clicked.connect(lambda file=file: self.open_item(file))
+        file_row.middle_clicked.connect(lambda file=file: self.open_in_explorer(file))
         file_row.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         file_row.customContextMenuRequested.connect(
             lambda pos, file=file, row=file_row: self.show_file_menu(file, row.mapToGlobal(pos))
@@ -525,6 +552,7 @@ class FileBrowser(QWidget):
         file_row.icon_label = icon_label
         file_row.star_button = star
         file_row.path = file
+        file_row.is_folder = "folders" in entry.kinds
         self.set_row_icon(file_row, entry)
         self.update_star(file_row, entry)
         return file_row
@@ -540,38 +568,52 @@ class FileBrowser(QWidget):
             self._generic_icons[key] = icon.pixmap(QSize(20, 20), self.devicePixelRatioF())
         return self._generic_icons[key]
 
-    def load_icon(self, entry):
-        """Read one icon from the shell; .lnk and .exe cost milliseconds each."""
-        icon = (self.icon_provider.generic_icon("folders" in entry.kinds)
-                if entry.online_only or entry.error else self.icon_provider.icon(entry.path))
-        pixmap = icon.pixmap(QSize(20, 20), self.devicePixelRatioF())
-        self._icons[entry.path] = (self.icon_stamp(entry), pixmap)
-        return pixmap
-
     def set_row_icon(self, row, entry):
-        """Cached icons paint now; the rest queue up so the list can appear first."""
+        """Cached icons paint now; the rest start generic and are read off the UI thread."""
+
         cached = self._icons.get(entry.path)
         if cached is not None and cached[0] == self.icon_stamp(entry):
             row.icon_label.setPixmap(cached[1])
             return
-        row.icon_label.setPixmap(self.generic_pixmap("folders" in entry.kinds))
-        self._icon_queue.append((row, entry))
-        self.icon_timer.start()
+        generic = self.generic_pixmap("folders" in entry.kinds)
+        row.icon_label.setPixmap(generic)
+        if entry.online_only or entry.error:
+            self._icons[entry.path] = (self.icon_stamp(entry), generic)  # Never ask the shell for these.
+            return
+        self._icon_queue.append(entry)
 
-    def fill_icons(self):
-        """A few rows per turn of the event loop, so a folder of shortcuts never blocks it."""
-        for _ in range(self.ICON_BATCH):
-            if not self._icon_queue:
-                self.icon_timer.stop()
-                return
-            row, entry = self._icon_queue.popleft()
-            if self._rows.get(entry.path) is row:
-                row.icon_label.setPixmap(self.load_icon(entry))
+    def read_icons(self):
+        """One batch at a time on a worker; the rows fill in as each batch lands."""
+
+        if self._icon_reading:
+            return
+        batch = []
+        while self._icon_queue and len(batch) < self.ICON_BATCH:
+            entry = self._icon_queue.popleft()
+            if entry.path in self._rows and entry not in batch:
+                batch.append(entry)
+        if not batch:
+            return
+        self._icon_reading = True
+        self.icon_reader.read(batch, self.devicePixelRatioF(), self._icons_landed)
+
+    def _icons_landed(self, images):
+        if sip.isdeleted(self):
+            return
+        self._icon_reading = False
+        for entry, image in images:
+            pixmap = QPixmap.fromImage(image)
+            self._icons[entry.path] = (self.icon_stamp(entry), pixmap)
+            row = self._rows.get(entry.path)
+            if row is not None and not sip.isdeleted(row):
+                row.icon_label.setPixmap(pixmap)
+        self.read_icons()
 
     def update_file_row(self, row, entry):
         file = entry.path
         show_extension = self.settings_modal.show_extensions or "folders" in entry.kinds
         row.name_label.set_name(file.name if show_extension else file.stem)
+        row.is_folder = "folders" in entry.kinds
         self.set_row_icon(row, entry)
         self.update_star(row, entry)
 
@@ -601,35 +643,55 @@ class FileBrowser(QWidget):
         else:
             self.emit_file(str(file))
 
+    def page_before(self):
+        """A picture of the list as it is, for the drill that follows a navigation."""
+
+        if self.isVisible() and motion.duration(motion.NORMAL) > 0:
+            return self.scroll_area.viewport().grab()
+
+        return None
+
+    def page_after(self, before, forward: bool):
+        """Drill in towards a folder below, or out towards one above or behind."""
+
+        PageTransition.play(self.scroll_area.viewport(), before, forward)
+
     def navigate_to(self, folder):
         folder = Path(folder)
         if folder == self.current_folder:
             return
         previous_location = self.current_location()
+        forward = not self.current_folder.is_relative_to(folder)
+        before = self.page_before()
         if self.create_list_items(folder):
             self.folder_history.append(previous_location)
             self.forward_history.clear()
             self.update_navigation_buttons()
+            self.page_after(before, forward)
 
     def go_back(self):
         if not self.folder_history:
             return
         previous_location = self.current_location()
         folder, scroll_position = self.folder_history[-1]
+        before = self.page_before()
         if self.create_list_items(folder, scroll_position):
             self.folder_history.pop()
             self.forward_history.append(previous_location)
             self.update_navigation_buttons()
+            self.page_after(before, forward=False)
 
     def go_forward(self):
         if not self.forward_history:
             return
         previous_location = self.current_location()
         folder, scroll_position = self.forward_history[-1]
+        before = self.page_before()
         if self.create_list_items(folder, scroll_position):
             self.forward_history.pop()
             self.folder_history.append(previous_location)
             self.update_navigation_buttons()
+            self.page_after(before, forward=True)
 
     def go_home(self):
         self.navigate_to(self.desktop_folder)
@@ -684,7 +746,33 @@ class FileBrowser(QWidget):
                 self.go_forward()
             event.accept()
         else:
+            if not self.rect().contains(event.position().toPoint()):
+                self.record_dismissal(event.globalPosition().toPoint())  # Qt closes the popup on this press.
             super().mousePressEvent(event)
+
+    def record_dismissal(self, point: QPoint):
+        self._dismissed = (monotonic(), point)
+
+    def dismissed_by_press_in(self, area: QRect) -> bool:
+        """Whether a press inside the area just closed the panel; its click is still on its way."""
+
+        stamp, point = self._dismissed
+
+        return monotonic() - stamp < self.DISMISS_SECONDS and area.contains(point)
+
+    def open_in_explorer(self, file):
+        """A middle click shows the item in File Explorer: a folder itself, a file where it lives."""
+
+        file = Path(file)
+        if file.is_dir():
+            self.emit_file(str(file))
+        else:
+            self.file_location_clicked.emit(str(file))
+
+    def properties_focused(self):
+        file = self.focused_file()
+        if file is not None:
+            self.show_file_properties(file)
 
     def show_file_menu(self, file, position):
         file = Path(file)
@@ -769,7 +857,42 @@ class FileBrowser(QWidget):
         if self.isVisible():
             self.settings_button.setFocus()
 
+    def edge_offset(self, distance: int) -> QPoint:
+        """Towards the screen edge the panel is docked against: down for the taskbar, up for the top."""
+
+        upward = self.settings_modal.docking_position.startswith("top")
+
+        return QPoint(0, -distance if upward else distance)
+
+    def prepare_arrival(self):
+        """Start invisible, so the first frame on screen is the entrance and not a flash."""
+
+        if motion.animations_enabled():
+            self.setWindowOpacity(0.0)
+
+    def arrive(self):
+        """Slide in from the docked edge and fade up, the way a tray flyout opens."""
+
+        self._arrival = motion.arrive(self, self.edge_offset(self.SLIDE), motion.SLOW)
+
+    def setVisible(self, visible):
+        """Hide at once, leaving a picture of the panel to go the way it came."""
+
+        if visible:
+            super().setVisible(True)
+            self.ghost.prepare()
+            return
+        if self.isVisible():
+            # A finished entrance has deleted itself; only a running one needs stopping.
+            if self._arrival is not None and not sip.isdeleted(self._arrival):
+                self._arrival.stop()
+            self._arrival = None
+            self.ghost.depart(self.edge_offset(self.SLIDE // 2), motion.NORMAL)
+        super().setVisible(False)
+        self.setWindowOpacity(1.0)  # Ready for a plain show; an entrance sets its own start.
+
     def hideEvent(self, event):
+        self.cascade.close()
         self.filter_menu.close()
         self.unwatch()
         super().hideEvent(event)
@@ -786,6 +909,7 @@ class FileBrowser(QWidget):
             self.render_entries(self.scroll_area.verticalScrollBar().value())
 
     def show_settings_modal(self):
+        self.cascade.close()
         self.filter_menu.close()
         self.settings_modal.show_settings()
 

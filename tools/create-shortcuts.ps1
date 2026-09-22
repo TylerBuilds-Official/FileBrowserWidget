@@ -6,7 +6,7 @@ $ErrorActionPreference = 'Stop'
 $projectRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $pythonPath = Join-Path $projectRoot '.venv\Scripts\pythonw.exe'
 $launcherPath = Join-Path $projectRoot 'launch.pyw'
-$iconPath = Join-Path $projectRoot 'src\assets\filter.ico'
+$iconPath = Join-Path $projectRoot 'src\assets\logo\fb_icon.ico'
 if (-not (Test-Path -LiteralPath $pythonPath)) {
     throw 'Create the project .venv and install PyQt6 before creating shortcuts.'
 }

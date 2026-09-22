@@ -11,6 +11,7 @@ from PyQt6.QtGui import QColor, QPalette
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication
 
+from src.ui import motion
 from src.ui.file_browser import FileBrowser
 from src.ui.settings.settings_modal import SettingsModal
 from src.utils.system_theme import SystemTheme, accent_colors, contrast
@@ -104,12 +105,16 @@ class ThemeAndSettingsTests(unittest.TestCase):
         modal.theme_combo.setCurrentIndex(modal.theme_combo.findData("dark"))
         modal.docking_combo.setCurrentIndex(modal.docking_combo.findData("top_left"))
         modal.extensions_check.setChecked(True)
+        modal.hover_combo.setCurrentIndex(modal.hover_combo.findData("cascade"))
+        modal.reopen_check.setChecked(True)
         self.settings.sync()
         fresh_settings = QSettings(self.settings.fileName(), QSettings.Format.IniFormat)
         restored = SettingsModal(settings=fresh_settings)
         self.assertEqual(restored.theme_mode, "dark")
         self.assertEqual(restored.docking_position, "top_left")
         self.assertTrue(restored.show_extensions)
+        self.assertEqual(restored.hover_behavior, "cascade")
+        self.assertTrue(restored.reopen_last)
         modal.deleteLater()
         restored.deleteLater()
 
@@ -139,20 +144,26 @@ class ThemeAndSettingsTests(unittest.TestCase):
         self.assertTrue(browser.content.isEnabled())
 
     def test_back_button_uses_animation_and_can_reopen(self):
+        motion.override = True
+        self.addCleanup(setattr, motion, "override", None)
         browser = FileBrowser()
         browser.resize(400, 640)
         browser.show()
         self.addCleanup(browser.deleteLater)
         self.addCleanup(browser.hide)
         browser.show_settings_modal()
-        QTest.qWait(220)
+        self.assertEqual(browser.settings_modal._animation.duration(), motion.SLOW)
+        QTest.qWait(400)
         browser.settings_modal.close_button.click()
         self.assertFalse(browser.settings_modal.isHidden())
-        QTest.qWait(220)
+        self.assertEqual(browser.settings_modal._animation.duration(), motion.NORMAL)
+        QTest.qWait(400)
         self.assertTrue(browser.settings_modal.isHidden())
         browser.show_settings_modal()
-        QTest.qWait(220)
+        QTest.qWait(400)
         self.assertEqual(browser.settings_modal.geometry(), browser.rect())
+        browser.hide()
+        QTest.qWait(300)  # The panel's ghost must not outlive the test.
 
 
 if __name__ == "__main__":

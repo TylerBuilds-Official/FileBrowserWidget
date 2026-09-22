@@ -1,7 +1,9 @@
+from src.ui import motion
+from src.ui.custom_widgets.ghost import Ghost
 from src.ui.smooth_scroll import SmoothComboBox
 from src.utils import window_effects
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import QPoint, Qt, pyqtSignal
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout,
                             QLineEdit, QComboBox, QLabel, QPushButton)
 
@@ -18,6 +20,7 @@ class FilterMenu(QWidget):
         # which leaves the dropdowns below unreachable from the keyboard.
         self.setWindowFlags(Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.ghost = Ghost(self)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 10, 12, 10)
         layout.setSpacing(8)
@@ -58,16 +61,35 @@ class FilterMenu(QWidget):
         self.search_edit.returnPressed.connect(self.close)
 
     def open_at(self, button):
+        """Drop down from the button, fading up, as a Windows flyout opens from its control."""
+
+        if self.isVisible():
+            self.search_edit.setFocus()
+            self.search_edit.selectAll()
+            return
         self.setFixedWidth(min(340, button.window().width() - 24))
         self.adjustSize()
         position = button.mapToGlobal(button.rect().bottomRight())
         position.setX(position.x() - self.width())
         self.move(position)
+        if motion.animations_enabled():
+            self.setWindowOpacity(0.0)
         self.show()
         window_effects.style_window(self)
         self.raise_()
+        motion.arrive(self, QPoint(0, -8), motion.NORMAL)
         self.search_edit.setFocus()
         self.search_edit.selectAll()
+
+    def setVisible(self, visible):
+        if visible:
+            super().setVisible(True)
+            self.ghost.prepare()
+            return
+        if self.isVisible():
+            self.ghost.depart(QPoint(0, -6), motion.FAST)
+        super().setVisible(False)
+        self.setWindowOpacity(1.0)
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_Escape:

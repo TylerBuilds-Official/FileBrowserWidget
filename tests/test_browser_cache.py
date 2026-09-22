@@ -1,6 +1,8 @@
 import os
 import shutil
 import subprocess
+import threading
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -33,9 +35,11 @@ class BrowserCacheTests(unittest.TestCase):
         self.drain_icons()
 
     def drain_icons(self):
-        """Icons load a batch per event loop turn; tests want them all in place."""
-        while self.browser._icon_queue:
-            self.browser.fill_icons()
+        """Icons are read on a worker a batch at a time; tests want them all in place."""
+        deadline = time.monotonic() + 5
+        while self.browser._icon_queue or self.browser._icon_reading:
+            QTest.qWait(10)
+            self.assertLess(time.monotonic(), deadline, "Icons never finished loading")
 
     def cleanup(self):
         self.browser.hide()
@@ -66,17 +70,24 @@ class BrowserCacheTests(unittest.TestCase):
         self.assertEqual(self.browser._rows, rows)
         self.assertEqual(rows[self.root / "item-01.txt"].name_label._name, "item-01.txt")
 
-    def test_rows_appear_before_their_icons_are_read(self):
-        with patch.object(self.browser.icon_provider, "icon", wraps=self.browser.icon_provider.icon) as icons:
+    def test_rows_appear_before_their_icons_are_read_off_the_ui_thread(self):
+        threads = []
+        original = self.browser.icon_provider.icon
+
+        def record(path):
+            threads.append(threading.get_ident())
+            return original(path)
+
+        with patch.object(self.browser.icon_provider, "icon", side_effect=record) as icons:
             self.browser.create_list_items(force=True)
-            icons.assert_not_called()
-            self.assertEqual(len(self.browser._icon_queue), 20)
+            # The first batch is already on its way; the rest wait, and every row has a picture.
+            self.assertEqual(len(self.browser._icon_queue), 20 - self.browser.ICON_BATCH)
+            self.assertTrue(self.browser._icon_reading)
             first = self.browser.file_list_layout.itemAt(0).widget()
             self.assertFalse(first.icon_label.pixmap().isNull())
-            self.browser.fill_icons()
-            self.assertEqual(icons.call_count, self.browser.ICON_BATCH)
-        QTest.qWait(400)
-        self.assertFalse(self.browser._icon_queue)
+            self.drain_icons()
+            self.assertEqual(icons.call_count, 20)
+        self.assertNotIn(threading.get_ident(), threads)
         self.assertIn(self.root / "item-00.txt", self.browser._icons)
 
     def test_changed_file_invalidates_only_its_metadata_and_icon(self):
