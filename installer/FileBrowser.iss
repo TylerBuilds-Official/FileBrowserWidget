@@ -57,6 +57,11 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
+[InstallDelete]
+; Setup replaces the files it ships but never removes ones a newer build no longer has; the bundle
+; folder is entirely ours, so clear it first and an upgrade leaves exactly the new build behind.
+Type: filesandordirs; Name: "{app}\_internal"
+
 [Files]
 Source: "{#SourcePath}\..\dist\FileBrowser\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourcePath}\..\dist\FileBrowser\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs

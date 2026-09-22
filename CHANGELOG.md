@@ -15,4 +15,5 @@
 - Folder rows skip their tooltip while the cascade is on.
 - The Settings scrollbar sits where the file list's does.
 - The exe carries version info, so Task Manager shows "File Browser"; the installer wizard shows the logo.
+- Upgrading removes the previous build's files first, so nothing stale is left behind.
 - The version lives in `src/version.py`; the debug Test entry is gone from the tray menu.
