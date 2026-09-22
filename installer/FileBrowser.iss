@@ -1,6 +1,6 @@
 ; File Browser installer. Build with tools\build.ps1, or compile this directly with
 ;   ISCC.exe /DMyAppVersion=0.1.1 installer\FileBrowser.iss
-; after PyInstaller has produced dist\FileBrowser.
+; after PyInstaller has produced dist\FileBrowser and tools\build-icon.py has written installer\wizard.
 
 #ifndef MyAppVersion
   #define MyAppVersion "0.1.1"
@@ -28,8 +28,14 @@ DisableProgramGroupPage=yes
 ; a UAC prompt. Anyone who wants it for the whole machine can still elevate in the dialog.
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
+; Inno 6.3 renamed the 64-bit values; older compilers only know x64.
+#if Ver >= EncodeVer(6,3,0)
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
+#else
+ArchitecturesAllowed=x64
+ArchitecturesInstallIn64BitMode=x64
+#endif
 ; The app sits in the tray, so an upgrade has to ask it to close before replacing its files.
 CloseApplications=yes
 RestartApplications=no
@@ -37,6 +43,9 @@ Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
 SetupIconFile={#SourcePath}\..\src\assets\logo\fb_icon.ico
+; One image per size Inno picks from for the display scale; tools\build-icon.py writes them.
+WizardImageFile={#SourcePath}\wizard\wizard-164x314.bmp,{#SourcePath}\wizard\wizard-192x386.bmp,{#SourcePath}\wizard\wizard-246x459.bmp,{#SourcePath}\wizard\wizard-273x556.bmp,{#SourcePath}\wizard\wizard-328x604.bmp,{#SourcePath}\wizard\wizard-355x700.bmp,{#SourcePath}\wizard\wizard-410x797.bmp
+WizardSmallImageFile={#SourcePath}\wizard\small-55.bmp,{#SourcePath}\wizard\small-64.bmp,{#SourcePath}\wizard\small-83.bmp,{#SourcePath}\wizard\small-92.bmp,{#SourcePath}\wizard\small-110.bmp,{#SourcePath}\wizard\small-119.bmp,{#SourcePath}\wizard\small-138.bmp
 UninstallDisplayIcon={app}\{#MyAppExeName}
 UninstallDisplayName={#MyAppName}
 OutputDir={#SourcePath}\Output

@@ -56,11 +56,40 @@ from PyQt6 import QtCore
     }
 }
 
+Write-Host '== Building the icon and wizard images ==' -ForegroundColor Cyan
+& $python -B (Join-Path $root 'tools\build-icon.py')
+if ($LASTEXITCODE -ne 0) { throw "build-icon.py exited with $LASTEXITCODE" }
+
+# Task Manager names a process by its FileDescription; without one it shows FileBrowser.exe.
+$versionFile = Join-Path $root 'build\FileBrowser.version'
+New-Item -ItemType Directory -Force (Split-Path $versionFile) | Out-Null
+$parts = @($Version -split '\.') + @('0', '0', '0', '0')
+$tuple = "($($parts[0]), $($parts[1]), $($parts[2]), $($parts[3]))"
+$versionText = @"
+# Version resource for FileBrowser.exe, written by tools/build.ps1 from src/version.py.
+VSVersionInfo(
+  ffi=FixedFileInfo(filevers=$tuple, prodvers=$tuple, mask=0x3f, flags=0x0, OS=0x40004, fileType=0x1, subtype=0x0, date=(0, 0)),
+  kids=[
+    StringFileInfo([StringTable('040904B0', [
+      StringStruct('CompanyName', 'TylerBuilds'),
+      StringStruct('FileDescription', 'File Browser'),
+      StringStruct('FileVersion', '$Version'),
+      StringStruct('InternalName', 'FileBrowser'),
+      StringStruct('OriginalFilename', 'FileBrowser.exe'),
+      StringStruct('ProductName', 'File Browser'),
+      StringStruct('ProductVersion', '$Version')])]),
+    VarFileInfo([VarStruct('Translation', [1033, 1200])])
+  ]
+)
+"@
+[System.IO.File]::WriteAllText($versionFile, $versionText, (New-Object System.Text.UTF8Encoding $false))
+
 Write-Host '== Freezing the app ==' -ForegroundColor Cyan
 Push-Location $root
 try {
     & $python -m PyInstaller --noconfirm --clean --windowed --name FileBrowser `
         --icon src\assets\logo\fb_icon.ico `
+        --version-file $versionFile `
         --exclude-module PySide6 --exclude-module PySide2 --exclude-module PyQt5 `
         --exclude-module tkinter --exclude-module pytest `
         launch.pyw

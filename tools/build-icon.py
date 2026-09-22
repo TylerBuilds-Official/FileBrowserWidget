@@ -1,4 +1,4 @@
-"""Build the Windows icon and the header image from the logo master.
+"""Build the Windows icon, the header image, and the installer's wizard images from the logo master.
 
 Windows wants a square icon with a frame for each size it draws: 16 to 32 in the tray and
 taskbar at the common scales, 48 and 64 in Explorer, and 256 for the large tiles. The mark
@@ -6,6 +6,8 @@ is wider than it is tall, so every frame letterboxes it on a transparent square.
 to 128 are stored as plain bitmaps, which everything that reads an .ico understands; 256 is
 stored as PNG, the way Windows stores its own. The header image keeps the mark's own
 proportions at three times the height the settings header draws it, enough for any scale.
+The wizard images are the bitmaps Inno Setup shows on its pages, one per size it picks from
+for the display scale, with the mark on the wizard's white; they are build output.
 
     .venv\\Scripts\\python.exe tools\\build-icon.py
 """
@@ -16,13 +18,16 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import QBuffer, QIODevice, Qt
-from PyQt6.QtGui import QGuiApplication, QImage, QPainter
+from PyQt6.QtCore import QBuffer, QIODevice, QRect, Qt
+from PyQt6.QtGui import QColor, QGuiApplication, QImage, QPainter
 
 LOGO          = Path(__file__).resolve().parents[1] / "src" / "assets" / "logo"
+WIZARD        = Path(__file__).resolve().parents[1] / "installer" / "wizard"
 SIZES         = (16, 20, 24, 32, 40, 48, 64, 128, 256)
 PNG_MIN       = 256
 HEADER_HEIGHT = 84
+WIZARD_LARGE  = ((164, 314), (192, 386), (246, 459), (273, 556), (328, 604), (355, 700), (410, 797))
+WIZARD_SMALL  = (55, 64, 83, 92, 110, 119, 138)
 
 
 def squared(source: QImage) -> QImage:
@@ -98,8 +103,46 @@ def build_header(master: Path, target: Path) -> QImage:
     return header
 
 
+def wizard_image(source: QImage, width: int, height: int, share: float) -> QImage:
+    """The mark centred on the wizard's white, taking the given share of the shorter side."""
+
+    canvas = QImage(width, height, QImage.Format.Format_RGB888)
+    canvas.fill(QColor("white"))
+    box = round(min(width, height) * share)
+    mark = source.scaled(box, box, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+    painter = QPainter(canvas)
+    painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+    painter.drawImage(QRect((width - mark.width()) // 2, (height - mark.height()) // 2, mark.width(), mark.height()), mark)
+    painter.end()
+
+    return canvas
+
+
+def build_wizard(master: Path, folder: Path) -> list[str]:
+    """Inno Setup's page images at every size it chooses from, as 24-bit bitmaps."""
+
+    QGuiApplication.instance() or QGuiApplication(sys.argv)
+    source = QImage(str(master))
+    if source.isNull():
+        raise FileNotFoundError(master)
+    folder.mkdir(parents=True, exist_ok=True)
+    names = []
+    for width, height in WIZARD_LARGE:
+        name = f"wizard-{width}x{height}.bmp"
+        wizard_image(source, width, height, 0.72).save(str(folder / name), "BMP")
+        names.append(name)
+    for side in WIZARD_SMALL:
+        name = f"small-{side}.bmp"
+        wizard_image(source, side, side, 0.84).save(str(folder / name), "BMP")
+        names.append(name)
+
+    return names
+
+
 if __name__ == "__main__":
     written = build_icon(LOGO / "fb_icon.png", LOGO / "fb_icon.ico")
     print(f"Wrote {LOGO / 'fb_icon.ico'} with frames {written}")
     header = build_header(LOGO / "fb_icon.png", LOGO / "fb_icon_header.png")
     print(f"Wrote {LOGO / 'fb_icon_header.png'} at {header.width()}x{header.height()}")
+    wizard = build_wizard(LOGO / "fb_icon.png", WIZARD)
+    print(f"Wrote {len(wizard)} wizard images into {WIZARD}")

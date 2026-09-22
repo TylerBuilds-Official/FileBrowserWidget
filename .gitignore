@@ -7,5 +7,6 @@ build/
 dist/
 *.spec
 installer/Output/
+installer/wizard/
 # Fixture folders and settings files that a test run cut short leaves behind.
 tests/.*
