@@ -46,8 +46,11 @@ if (-not $SkipResources) {
 
 from PyQt6 import QtCore
 "@
-        $text = $text.Replace("`nfrom PySide6 import QtCore`n", "$note")
-        Set-Content -LiteralPath $generated -Value $text -Encoding utf8
+        # rcc writes CRLF on Windows; match the line whatever ends it, and prove the swap happened.
+        $text = [regex]::Replace($text, '(?m)^from PySide6 import QtCore?$', $note.TrimEnd())
+        if ($text -match 'from PySide6') { throw 'resources_rc.py still imports PySide6 after repointing.' }
+        if ($text -notmatch 'from PyQt6 import QtCore') { throw 'resources_rc.py has no PyQt6 import after repointing.' }
+        [System.IO.File]::WriteAllText($generated, $text, (New-Object System.Text.UTF8Encoding $false))
         Write-Host "   resources_rc.py regenerated and repointed at PyQt6"
     }
     finally {

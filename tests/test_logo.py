@@ -1,5 +1,6 @@
 import os
 import unittest
+from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -23,6 +24,12 @@ class LogoTests(unittest.TestCase):
         for side in (16, 20, 24, 32, 48, 64, 256):
             self.assertIn((side, side), sizes)
         self.assertFalse(icon.pixmap(QSize(16, 16)).isNull())
+
+    def test_compiled_resources_import_pyqt_not_pyside(self):
+        # The freeze excludes PySide6, so a PySide6 import here would kill the packaged app at launch.
+        source = (Path(__file__).resolve().parents[1] / "src" / "assets" / "resources_rc.py").read_text(encoding="utf-8")
+        self.assertIn("from PyQt6 import QtCore", source)
+        self.assertNotIn("from PySide6", source)
 
     def test_bundle_carries_the_logo_and_not_the_old_icon(self):
         self.assertTrue(QFile(":/assets/logo/fb_icon.ico").exists())
