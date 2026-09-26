@@ -372,10 +372,32 @@ class FileBrowser(QWidget):
         self.show_location(start)
 
     def show_location(self, folder):
-        self.title_label.set_name("Desktop" if folder == self.desktop_folder else folder.name or str(folder))
+        self.title_label.set_name(self.place_name(folder))
         self.title_label.setToolTip(str(folder))
         self.path_label.set_name(str(folder))
         self.path_label.setToolTip(str(folder))
+        if not folder.name and len(folder.drive) == 2 and folder not in self._drive_names:
+            kind = locations.drive_kind(str(folder))
+            if kind is not None:
+                # Titled by its kind for now: its label is on the drive itself, so it is read on a worker.
+                def named():
+                    if self.current_folder == folder:
+                        self.title_label.set_name(self.place_name(folder))
+
+                self.read_drive_names([locations.Drive(folder, kind)], named)
+
+    def place_name(self, folder):
+        """What the title calls a folder: the Desktop, a drive as Explorer names it, a share by its name."""
+
+        if folder == self.desktop_folder:
+            return "Desktop"
+        if folder.name:
+            return folder.name
+        if folder.drive.startswith("\\\\"):
+            return folder.drive.rpartition("\\")[2] or str(folder)  # \\server\share is titled "share".
+        kind = locations.drive_kind(str(folder)) if len(folder.drive) == 2 else None
+
+        return str(folder) if kind is None else self.named_drive(locations.Drive(folder, kind)).name
 
     def clear_search(self):
         self.search_timer.stop()
@@ -957,10 +979,7 @@ class FileBrowser(QWidget):
         menu.addAction("Go to path…\tCtrl+L").triggered.connect(self.edit_address)
         anchor = self.locations_button.mapToGlobal(self.locations_button.rect().bottomRight())
 
-        def names_landed(names):
-            if sip.isdeleted(self):
-                return
-            self._drive_names.update(names)
+        def names_landed():
             if not drive_actions or sip.isdeleted(menu):
                 return  # Closed already: the names wait for the next time it opens.
             for drive in drives:
@@ -980,11 +999,7 @@ class FileBrowser(QWidget):
                 if entry.path in folder_actions and not sip.isdeleted(menu):
                     folder_actions[entry.path].setIcon(icon)
 
-        names = {}
-        executor = ThreadExecutor(lambda: names.update(locations.read_names(drives)), retries=0)
-        executor.success.connect(lambda *_: names_landed(names))
-        executor.errors.connect(lambda *_: names_landed(names))
-        executor.run_task()
+        self.read_drive_names(drives, names_landed)
         if unread:
             self.icon_reader.read(unread, ratio, icons_landed)
         window_effects.style_window(menu)
@@ -1029,6 +1044,22 @@ class FileBrowser(QWidget):
         action = menu.addAction(icon, name.replace("&", "&&"))  # A lone ampersand would become a mnemonic.
         action.triggered.connect(lambda checked=False, path=path: self.navigate_to(path))
         return action
+
+    def read_drive_names(self, drives, landed):
+        """Read drives' labels and shares on a worker and keep them; `landed()` runs once they are in."""
+
+        names = {}
+
+        def done(*_):
+            if sip.isdeleted(self):
+                return
+            self._drive_names.update(names)
+            landed()
+
+        executor = ThreadExecutor(lambda: names.update(locations.read_names(drives)), retries=0)
+        executor.success.connect(done)
+        executor.errors.connect(done)
+        executor.run_task()
 
     def named_drive(self, drive):
         """The drive with its label and share as last read; known only by its kind until then."""

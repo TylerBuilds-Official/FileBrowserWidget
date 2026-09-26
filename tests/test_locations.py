@@ -221,6 +221,29 @@ class LocationsMenuTests(unittest.TestCase):
             drain_workers()
         self.assertEqual(len(calls), 2)  # The second time, every icon came from the cache.
 
+    def test_a_drive_root_is_titled_as_explorer_names_it_once_its_label_is_read(self):
+        root, other = Path("Q:\\"), Path("R:\\")
+        labels = {root: ("Backup", "", True), other: ("Old", "", True)}
+        with patch("src.utils.locations.drive_kind", return_value="fixed"), \
+                patch("src.utils.locations.read_names", lambda drives: {d.root: labels[d.root] for d in drives}):
+            self.browser.current_folder = root
+            self.browser.show_location(root)
+            self.assertEqual(self.browser.title_label._name, "Local Disk (Q:)")  # By its kind, at once,
+            drain_workers()
+            self.assertEqual(self.browser.title_label._name, "Backup (Q:)")  # then by its label.
+            self.assertEqual(self.browser.title_label.toolTip(), "Q:\\")
+            # A label that lands after the panel has moved on leaves the new title alone.
+            self.browser.current_folder = other
+            self.browser.show_location(other)
+            self.browser.current_folder = self.root
+            self.browser.show_location(self.root)
+            drain_workers()
+        self.assertEqual(self.browser.title_label._name, "Desktop")
+
+    def test_a_share_is_titled_by_its_own_name(self):
+        self.browser.show_location(Path("\\\\nas\\Media\\"))
+        self.assertEqual(self.browser.title_label._name, "Media")
+
     def test_the_folder_read_quiets_drive_errors_on_its_own_thread(self):
         threads = []
         with patch("src.utils.locations.quiet_drive_errors", lambda: threads.append(QThread.currentThread())):
