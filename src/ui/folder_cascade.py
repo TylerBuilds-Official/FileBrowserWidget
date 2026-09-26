@@ -500,14 +500,14 @@ class FolderCascade(QObject):
 
     def activate(self, path: str | Path):
         self.close()
-        self.browser.open_item(Path(path))
+        self.browser.open_item(Path(path), is_folder=False)  # A folder is a level of its own, never activated.
 
     def drill(self, path: str | Path):
         self.close()
         self.browser.navigate_to(Path(path))
 
-    def show_context_menu(self, path: str | Path, global_position: QPoint):
-        self.browser.show_file_menu(Path(path), global_position)
+    def show_context_menu(self, path: str | Path, global_position: QPoint, is_folder: bool):
+        self.browser.show_file_menu(Path(path), global_position, is_folder)
         self.close()
 
     def close(self):

@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import QApplication, QPushButton
 from src.ui.file_browser import FileBrowser
 from src.ui.breadcrumbs import Breadcrumbs
 from src.utils.favorites import Favorites
-from support import settle
+from support import drain_workers, settle
 
 
 class FavoritesTests(unittest.TestCase):
@@ -87,9 +87,11 @@ class FavoritesTests(unittest.TestCase):
             menu.actions()[0].trigger()
         with patch("src.ui.file_browser.QMenu.exec", choose):
             self.browser.show_favorites_menu()
+        drain_workers()  # A favorite is looked up on a worker before it opens.
         self.assertEqual(opened, [str(self.last)])
         self.last.unlink()
         self.browser.open_favorite(self.last)
+        drain_workers()
         self.assertEqual(self.browser.status_label.text(), "Favorite no longer exists.")
         self.browser.toggle_favorite(self.last)
         self.assertFalse(Favorites(self.settings).contains(self.last))

@@ -268,7 +268,7 @@ class FolderCascadeTests(unittest.TestCase):
         target = menu.actionGeometry(menu.actions()[1]).center()
         with patch.object(self.browser, "show_file_menu") as file_menu:
             QTest.mouseClick(menu, Qt.MouseButton.RightButton, pos=target)
-        file_menu.assert_called_once_with(self.folder / "Notes & ideas.txt", menu.mapToGlobal(target))
+        file_menu.assert_called_once_with(self.folder / "Notes & ideas.txt", menu.mapToGlobal(target), False)
         self.assertFalse(self.cascade.is_open())
 
     def test_resting_on_another_row_moves_or_closes_the_cascade(self):

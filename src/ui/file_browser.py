@@ -2,6 +2,7 @@ import sys
 from collections import deque
 from dataclasses import dataclass, replace
 from pathlib import Path
+from stat import S_ISDIR
 from time import monotonic
 
 from PyQt6 import sip
@@ -111,6 +112,8 @@ class FileBrowser(QWidget):
         self._scan_generation = 0
         self._scan_pending = False
         self._changes = 0
+        # Moves the user makes, so a look-up that answers after one of them is dropped.
+        self._navigations = 0
         self.slow_scan_timer = QTimer(self)
         self.slow_scan_timer.setSingleShot(True)
         self.slow_scan_timer.setInterval(150)
@@ -328,6 +331,7 @@ class FileBrowser(QWidget):
         self._scan_generation += 1
         self._scan_pending = False
         self.slow_scan_timer.stop()
+        self._navigations += 1
         if self.current_folder == self.desktop_folder:
             return
         self.current_folder = self.desktop_folder
@@ -730,12 +734,62 @@ class FileBrowser(QWidget):
     def current_location(self):
         return self.current_folder, self.scroll_area.verticalScrollBar().value()
 
-    def open_item(self, file):
+    def open_item(self, file, is_folder=None):
+        """Open a folder in the panel, and anything else with Windows.
+
+        Which one it is comes from the listing where it can, or else from the disk on a worker: a
+        stat on a sleeping share would hold the UI thread for seconds.
+        """
+
         file = Path(file)
-        if file.is_dir():
+        if is_folder is None:
+            is_folder = self.listed_as_folder(file)
+        if is_folder is None:
+            self.look_up(file, lambda is_folder: self.open_item(file, is_folder))
+        elif is_folder:
             self.navigate_to(file)
         else:
             self.emit_file(str(file))
+
+    def listed_as_folder(self, file):
+        """Whether the listing has a path as a folder; None for a path it has not listed."""
+
+        entry = self._entry_cache.get(Path(file))
+
+        return None if entry is None else "folders" in entry.kinds
+
+    def look_up(self, file, landed, missing="That item no longer exists."):
+        """Ask the disk whether a path is a folder, on a worker; `landed(is_folder)` runs once it says.
+
+        A navigation, a reopen, or a newer look-up in the meantime drops the answer, so a slow share
+        never pulls the panel away from wherever the user has gone since.
+        """
+
+        self._navigations += 1
+        navigation = self._navigations
+        result = {}
+
+        def stat():
+            locations.quiet_drive_errors()
+            result["folder"] = S_ISDIR(Path(file).stat().st_mode)
+
+        def answered(errors):
+            if sip.isdeleted(self) or navigation != self._navigations:
+                return
+            if not errors:
+                landed(result["folder"])
+                return
+            error = errors[-1]
+            if not isinstance(error, OSError):
+                sys.excepthook(type(error), error, error.__traceback__)
+            # Only a missing item is gone; any other error is a share that did not answer.
+            self.status_label.setText(missing if isinstance(error, FileNotFoundError) else "Could not open this item.")
+            self.status_label.setToolTip(str(error))
+
+        executor = ThreadExecutor(stat, retries=0)
+        executor.success.connect(lambda *_: answered([]))
+        executor.errors.connect(answered)
+        executor.run_task()
 
     def page_before(self):
         """A picture of the list as it is, for the drill that follows a navigation."""
@@ -754,6 +808,7 @@ class FileBrowser(QWidget):
         folder = Path(folder)
         if folder == self.current_folder:
             return
+        self._navigations += 1
         previous_location = self.current_location()
         forward = not self.current_folder.is_relative_to(folder)
         before = self.page_before()
@@ -770,6 +825,7 @@ class FileBrowser(QWidget):
     def go_back(self):
         if not self.folder_history:
             return
+        self._navigations += 1
         previous_location = self.current_location()
         folder, scroll_position = self.folder_history[-1]
         before = self.page_before()
@@ -786,6 +842,7 @@ class FileBrowser(QWidget):
     def go_forward(self):
         if not self.forward_history:
             return
+        self._navigations += 1
         previous_location = self.current_location()
         folder, scroll_position = self.forward_history[-1]
         before = self.page_before()
@@ -827,11 +884,8 @@ class FileBrowser(QWidget):
         menu.deleteLater()
 
     def open_favorite(self, path):
-        if not path.exists():
-            self.status_label.setText("Favorite no longer exists.")
-            self.status_label.setToolTip(str(path))
-            return
-        self.open_item(path)
+        # A favorite may be anywhere, so ask the disk what it is, and whether it is still there.
+        self.look_up(path, lambda is_folder: self.open_item(path, is_folder), missing="Favorite no longer exists.")
 
     def show_locations_menu(self):
         """The user's folders and every drive, as Explorer's navigation pane lists them.
@@ -955,7 +1009,7 @@ class FileBrowser(QWidget):
         """A middle click shows the item in File Explorer: a folder itself, a file where it lives."""
 
         file = Path(file)
-        if file.is_dir():
+        if self.listed_as_folder(file):
             self.emit_file(str(file))
         else:
             self.file_location_clicked.emit(str(file))
@@ -965,13 +1019,15 @@ class FileBrowser(QWidget):
         if file is not None:
             self.show_file_properties(file)
 
-    def show_file_menu(self, file, position):
+    def show_file_menu(self, file, position, is_folder=None):
         file = Path(file)
+        if is_folder is None:
+            is_folder = self.listed_as_folder(file)
         menu = QMenu(self)
         open_action = menu.addAction("Open")
         menu.setDefaultAction(open_action)
-        open_action.triggered.connect(lambda: self.open_item(file))
-        if file.is_dir():
+        open_action.triggered.connect(lambda: self.open_item(file, is_folder))
+        if is_folder:
             explorer_action = menu.addAction("Open in File Explorer")
             explorer_action.triggered.connect(lambda: self.emit_file(str(file)))
         location_action = menu.addAction("Open file location")

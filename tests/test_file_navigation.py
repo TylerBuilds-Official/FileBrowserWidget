@@ -1,6 +1,8 @@
 import os
 import shutil
+import threading
 import unittest
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from uuid import uuid4
 from unittest.mock import patch
@@ -15,7 +17,7 @@ from PyQt6.QtWidgets import QApplication
 from src.ui.file_browser import FileBrowser
 from src.utils import shell_actions
 from src.utils.file_opener import FileOpener
-from support import settle
+from support import drain_workers, settle
 
 
 class FileNavigationTests(unittest.TestCase):
@@ -498,6 +500,102 @@ class FileNavigationTests(unittest.TestCase):
                 self.app.processEvents()
                 self.assertEqual(self.browser.current_folder, self.root)
                 self.assertEqual(bar.value(), 450)
+
+    @contextmanager
+    def disk_questions_on_the_ui_thread(self):
+        """Every stat, exists, is_dir or is_file asked on the UI thread while it is open.
+
+        Workers may ask the disk. The UI thread may not: a share can take seconds to answer.
+        """
+        asked = []
+        ui_thread = threading.current_thread()
+        with ExitStack() as stack:
+            for name in ("stat", "exists", "is_dir", "is_file"):
+                def spy(path, *args, real=getattr(Path, name), name=name, **kwargs):
+                    if threading.current_thread() is ui_thread:
+                        asked.append((name, path))
+                    return real(path, *args, **kwargs)
+                stack.enter_context(patch.object(Path, name, spy))
+            yield asked
+
+    def test_opening_a_listed_item_asks_the_listing_not_the_disk(self):
+        opened, located, menus = [], [], []
+        self.browser.program_clicked.connect(opened.append)
+        self.browser.file_location_clicked.connect(located.append)
+
+        def look(menu, position):
+            menus.append([action.text() for action in menu.actions()])
+
+        with self.disk_questions_on_the_ui_thread() as asked:
+            self.row_for(self.file).clicked.emit()
+            self.row_for(self.file).middle_clicked.emit()
+            self.row_for(self.folder).middle_clicked.emit()
+            with patch("src.ui.file_browser.QMenu.exec", look):
+                self.browser.show_file_menu(self.folder, QPoint(20, 20))
+                self.browser.show_file_menu(self.file, QPoint(20, 20))
+            self.row_for(self.folder).clicked.emit()
+            settle(self.browser)
+        self.assertEqual(asked, [])
+        self.assertEqual(opened, [str(self.file), str(self.folder)])
+        self.assertEqual(located, [str(self.file)])
+        self.assertIn("Open in File Explorer", menus[0])
+        self.assertNotIn("Open in File Explorer", menus[1])
+        self.assertEqual(self.browser.current_folder, self.folder)
+
+    def test_an_item_that_was_never_listed_is_looked_up_on_a_worker(self):
+        opened = []
+        self.browser.program_clicked.connect(opened.append)
+        inner = self.deep / "inner.txt"
+        inner.write_text("x", encoding="utf-8")
+        with self.disk_questions_on_the_ui_thread() as asked:
+            self.browser.open_item(inner)
+            self.assertEqual(opened, [])  # Not yet: the disk is being asked on a worker.
+            drain_workers()
+            self.browser.open_item(self.deep)
+            drain_workers()
+            settle(self.browser)
+        self.assertEqual(asked, [])
+        self.assertEqual(opened, [str(inner)])
+        self.assertEqual(self.browser.current_folder, self.deep)
+
+    def test_a_slow_look_up_never_pulls_the_panel_from_where_it_went_since(self):
+        self.browser.desktop_folder = self.root
+        release = threading.Event()
+        real = Path.stat
+
+        def sleeping_share(path, *args, **kwargs):
+            if path == self.deep:
+                release.wait(5)
+            return real(path, *args, **kwargs)
+
+        moves = {"a navigation": lambda: self.browser.navigate_to(self.folder),
+                 "a reopen": self.browser.reset_location}
+        for move, go in moves.items():
+            with self.subTest(move), patch.object(Path, "stat", sleeping_share):
+                release.clear()
+                self.browser.open_favorite(self.deep)
+                go()
+                settle(self.browser)
+                where = self.browser.current_folder
+                release.set()
+                drain_workers()
+                settle(self.browser)
+                self.assertEqual(self.browser.current_folder, where)
+                self.assertNotEqual(where, self.deep)
+
+    def test_a_favorite_that_does_not_answer_is_not_reported_gone(self):
+        real = Path.stat
+
+        def unreachable(path, *args, **kwargs):
+            if path == self.deep:
+                raise TimeoutError("The semaphore timeout period has expired")
+            return real(path, *args, **kwargs)
+
+        with patch.object(Path, "stat", unreachable):
+            self.browser.open_favorite(self.deep)
+            drain_workers()
+        self.assertEqual(self.browser.status_label.text(), "Could not open this item.")
+        self.assertEqual(self.browser.current_folder, self.root)
 
 
 if __name__ == "__main__":

@@ -27,7 +27,7 @@ class CascadeMenu(QMenu):
         if event.button() == Qt.MouseButton.RightButton and self.rect().contains(position):
             action = self.item_at(position)
             if action is not None:
-                self.cascade.show_context_menu(action.data(), global_position)
+                self.cascade.show_context_menu(action.data(), global_position, action.menu() is not None)
             event.accept()
             return
         super().mousePressEvent(event)
