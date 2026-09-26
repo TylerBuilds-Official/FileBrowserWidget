@@ -93,6 +93,25 @@ def list_drives() -> list[Drive]:
     return drives
 
 
+def typed_path(text: str, base: Path) -> Path | None:
+    """What someone typed or pasted as a place, as a path; None if there is nothing to go to.
+
+    Windows' Copy as path wraps a path in quotes, a variable such as %USERPROFILE% is spelled
+    out, a drive letter alone means its root, and anything relative is taken from `base`.
+    """
+
+    text = os.path.expandvars(text.strip().strip('"').strip())
+    if not text:
+        return None
+    if len(text) == 2 and text[1] == ":":
+        text += "\\"
+    path = Path(text)
+    if not path.is_absolute():
+        path = base / path
+
+    return Path(os.path.normpath(path))
+
+
 def is_remote(path) -> bool:
     """Whether a path lives on another machine, told from its spelling and the drive table alone."""
 

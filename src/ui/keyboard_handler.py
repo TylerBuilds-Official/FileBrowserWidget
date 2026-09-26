@@ -20,6 +20,8 @@ class KeyboardHandler(QObject):
         browser.installEventFilter(self)  # Letters typed anywhere in the panel reach the list.
         for key, action in (
             ("Ctrl+F", browser.focus_search),
+            ("Ctrl+L", browser.edit_address),
+            ("Alt+D", browser.edit_address),
             ("Alt+Left", browser.go_back),
             ("Backspace", browser.go_back),
             ("Alt+Right", browser.go_forward),

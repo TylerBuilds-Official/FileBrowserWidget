@@ -145,6 +145,8 @@ QLineEdit {
     selection-color: $accent_text;
 }
 QLineEdit:focus { border-bottom: 2px solid $accent; }
+/* It stands in for the breadcrumbs, so it keeps to their size and the header stays still. */
+QLineEdit#addressEdit { font-size: 12px; min-height: 18px; max-height: 18px; padding: 2px 8px; }
 QKeySequenceEdit QLineEdit { min-height: 20px; }
 QMenu {
     background: $surface;

@@ -72,6 +72,8 @@ class DriveTests(unittest.TestCase):
 class LocationsMenuTests(unittest.TestCase):
     """The locations menu opens at once and fills in what it reads; no pick waits on a drive."""
 
+    GO_TO = "Go to path\tCtrl+L"  # As drawn: Qt leaves the ellipsis out of an action's plain text.
+
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
@@ -153,10 +155,10 @@ class LocationsMenuTests(unittest.TestCase):
         (waited, cold), (_, warm) = seen
         self.assertLess(waited, 1.0)  # Up at once, not after the names.
         disk, share = (drive.name for drive in self.drives)
-        self.assertEqual(cold, ["Desktop", "Documents", "-", disk, "-", share])
+        self.assertEqual(cold, ["Desktop", "Documents", "-", disk, "-", share, "-", self.GO_TO])
         disk = Drive(self.disk, "fixed", "Games & Media").name
         share = Drive(self.share, "network", remote=r"\\nas\Media").name
-        self.assertEqual(warm, ["Desktop", "Documents", "-", disk, "-", share])
+        self.assertEqual(warm, ["Desktop", "Documents", "-", disk, "-", share, "-", self.GO_TO])
         self.assertIn("Games & Media", disk)  # The ampersand is drawn, not taken as a mnemonic.
 
     def test_it_reopens_on_the_names_already_read(self):
@@ -175,13 +177,14 @@ class LocationsMenuTests(unittest.TestCase):
         with patch("src.utils.locations.read_names", return_value=self.names):
             self.open_menu(lambda menu: None)
             drain_workers()
-            icons = []
-            self.open_menu(lambda menu: icons.extend(action.icon().cacheKey() for action in menu.actions()))
+            icons = {}
+            self.open_menu(lambda menu: icons.update((action.iconText(), action.icon().cacheKey())
+                                                     for action in menu.actions()))
         connected = self.browser.drive_icon(Drive(self.share, "network"))
         disconnected = self.browser.drive_icon(Drive(self.share, "network", connected=False))
         self.assertFalse(disconnected.isNull())
         self.assertNotEqual(disconnected.cacheKey(), connected.cacheKey())
-        self.assertEqual(icons[-1], disconnected.cacheKey())
+        self.assertEqual(icons[Drive(self.share, "network", remote=r"\\nas\Media").name], disconnected.cacheKey())
 
     def test_choosing_a_drive_opens_it(self):
         with patch("src.utils.locations.read_names", return_value={}):

@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import QVBoxLayout, QLabel
 
 
 from src.ui import motion
+from src.ui.custom_widgets.address_edit import AddressEdit
 from src.ui.custom_widgets.fluent_icon_button import FluentIconButton
 from src.ui.custom_widgets.ghost import Ghost
 from src.ui.custom_widgets.page_transition import PageTransition
@@ -186,10 +187,16 @@ class FileBrowser(QWidget):
             navigation.addWidget(button)
         self.path_label = Breadcrumbs(self.current_folder)
         self.path_label.folder_clicked.connect(self.navigate_to)
+        self.path_label.edit_requested.connect(self.edit_address)
         self.path_label.setObjectName("browserPath")
         self.path_label.setProperty("role", "secondary")
         self.path_label.setToolTip(str(self.current_folder))
         navigation.addWidget(self.path_label, 1)
+        self.address_edit = AddressEdit()
+        self.address_edit.submitted.connect(self.go_to_address)
+        self.address_edit.cancelled.connect(self.close_address)
+        self.address_edit.hide()
+        navigation.addWidget(self.address_edit, 1)
         self.locations_button = FluentIconButton("this-pc", "Folders and drives")
         self.locations_button.clicked.connect(self.show_locations_menu)
         navigation.addWidget(self.locations_button)
@@ -924,6 +931,9 @@ class FileBrowser(QWidget):
             for drive in group:
                 named = self.named_drive(drive)
                 drive_actions[drive.root] = self.add_location(menu, named.name, drive.root, self.drive_icon(named))
+        # A share with no drive letter has no place in the list; it is reached by typing it.
+        menu.addSeparator()
+        menu.addAction("Go to path…\tCtrl+L").triggered.connect(self.edit_address)
         anchor = self.locations_button.mapToGlobal(self.locations_button.rect().bottomRight())
 
         def names_landed(names):
@@ -962,6 +972,37 @@ class FileBrowser(QWidget):
         folder_actions.clear()  # Whatever lands from here on has no menu to paint.
         drive_actions.clear()
         menu.deleteLater()
+
+    def edit_address(self):
+        """Turn the breadcrumbs into the path as text, all selected, as Explorer's address bar does."""
+
+        self.cascade.close()
+        self.address_edit.setText(str(self.current_folder))
+        self.path_label.hide()
+        self.address_edit.show()
+        self.address_edit.setFocus(Qt.FocusReason.ShortcutFocusReason)
+        self.address_edit.selectAll()
+
+    def close_address(self):
+        if self.address_edit.isHidden():
+            return
+        typing = self.address_edit.hasFocus()
+        self.address_edit.hide()
+        self.path_label.show()
+        if typing:
+            self.path_label.setFocus(Qt.FocusReason.OtherFocusReason)  # Back where the typing began.
+
+    def go_to_address(self, text):
+        """Open what was typed: a folder in the panel, anything else with Windows.
+
+        Which it is, and whether it is there at all, is asked of the disk on a worker.
+        """
+
+        self.close_address()
+        path = locations.typed_path(text, self.current_folder)
+        if path is not None:
+            self.look_up(path, lambda is_folder: self.open_item(path, is_folder),
+                         missing="There is no such file or folder.")
 
     def add_location(self, menu, name, path, icon):
         action = menu.addAction(icon, name.replace("&", "&&"))  # A lone ampersand would become a mnemonic.
@@ -1153,6 +1194,7 @@ class FileBrowser(QWidget):
     def hideEvent(self, event):
         self.cascade.close()
         self.filter_menu.close()
+        self.close_address()
         self.unwatch()
         super().hideEvent(event)
 

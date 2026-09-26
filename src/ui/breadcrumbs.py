@@ -10,10 +10,12 @@ from src.utils import window_effects
 
 class Breadcrumbs(QLabel):
     folder_clicked = pyqtSignal(object)
+    edit_requested = pyqtSignal()
 
     def __init__(self, path):
         super().__init__()
         self.paths = []
+        self._activated = False
         self.setTextFormat(Qt.TextFormat.RichText)
         self.setTextInteractionFlags(Qt.TextInteractionFlag.LinksAccessibleByMouse |
                                      Qt.TextInteractionFlag.LinksAccessibleByKeyboard)
@@ -59,7 +61,16 @@ class Breadcrumbs(QLabel):
             links.append(link(label, index))
         self.setText(separator.join(links))
 
+    def mouseReleaseEvent(self, event):
+        # A click beside the crumbs types the path instead, as in Explorer. A crumb's own click is
+        # handled inside the release, so whether one was hit is known once it returns.
+        self._activated = False
+        super().mouseReleaseEvent(event)
+        if event.button() == Qt.MouseButton.LeftButton and not self._activated:
+            self.edit_requested.emit()
+
     def open_link(self, target):
+        self._activated = True
         if target == "more":
             menu = QMenu(self)
             for path in self.hidden_paths:
