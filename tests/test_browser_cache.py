@@ -80,14 +80,20 @@ class BrowserCacheTests(unittest.TestCase):
             threads.append(threading.get_ident())
             return original(path)
 
+        landed = {}
+
+        def look(ok):
+            # Seen the moment the listing lands: waiting for it spins the loop, and a quick
+            # first batch could land in that spin too.
+            first = self.browser.file_list_layout.itemAt(0).widget()
+            landed.update(queued=len(self.browser._icon_queue), reading=self.browser._icon_reading,
+                          pictured=not first.icon_label.pixmap().isNull())
+
         with patch.object(self.browser.icon_provider, "icon", side_effect=record) as icons:
-            self.browser.create_list_items(force=True)
+            self.browser.create_list_items(force=True, done=look)
             settle(self.browser)
             # The first batch is already on its way; the rest wait, and every row has a picture.
-            self.assertEqual(len(self.browser._icon_queue), 20 - self.browser.ICON_BATCH)
-            self.assertTrue(self.browser._icon_reading)
-            first = self.browser.file_list_layout.itemAt(0).widget()
-            self.assertFalse(first.icon_label.pixmap().isNull())
+            self.assertEqual(landed, {"queued": 20 - self.browser.ICON_BATCH, "reading": True, "pictured": True})
             self.drain_icons()
             self.assertEqual(icons.call_count, 20)
         self.assertNotIn(threading.get_ident(), threads)
