@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import QApplication
 from src.ui.file_browser import FileBrowser
 from src.utils import shell_actions
 from src.utils.file_opener import FileOpener
+from support import settle
 
 
 class FileNavigationTests(unittest.TestCase):
@@ -36,6 +37,7 @@ class FileNavigationTests(unittest.TestCase):
         self.addCleanup(self.browser.deleteLater)
         self.addCleanup(self.browser.hide)
         self.browser.create_list_items(self.root)
+        settle(self.browser)
 
     def remove_fixture(self):
         root = self.root.resolve()
@@ -57,6 +59,7 @@ class FileNavigationTests(unittest.TestCase):
         levels = [self.folder, self.folder / "Second", self.deep.parent, self.deep]
         for folder in levels:
             self.row_for(folder).clicked.emit()
+            settle(self.browser)
             self.assertEqual(self.browser.current_folder, folder)
             self.assertTrue(self.browser.back_button.isEnabled())
             self.assertEqual(self.browser.path_label.toolTip(), str(folder))
@@ -64,6 +67,7 @@ class FileNavigationTests(unittest.TestCase):
         self.assertEqual(opened, [])
         for folder in [self.deep.parent, self.folder / "Second", self.folder, self.root]:
             self.browser.back_button.click()
+            settle(self.browser)
             self.assertEqual(self.browser.current_folder, folder)
         self.assertFalse(self.browser.back_button.isEnabled())
         self.assertEqual(self.browser.folder_history, [])
@@ -77,8 +81,10 @@ class FileNavigationTests(unittest.TestCase):
 
     def test_refresh_keeps_current_folder_and_history(self):
         self.browser.open_item(self.folder)
+        settle(self.browser)
         self.browser.settings_modal.extensions_check.setChecked(True)
         self.browser.create_list_items()
+        settle(self.browser)
         self.assertEqual(self.browser.current_folder, self.folder)
         self.assertEqual(self.browser.folder_history, [(self.root, 0)])
         self.assertIsNotNone(self.row_for(self.folder / "Second"))
@@ -87,11 +93,13 @@ class FileNavigationTests(unittest.TestCase):
         count = self.browser.file_list_layout.count()
         with patch.object(self.browser, "traverse_level", side_effect=PermissionError("Access denied")):
             self.browser.open_item(self.folder)
+            settle(self.browser)
         self.assertEqual(self.browser.current_folder, self.root)
         self.assertEqual(self.browser.folder_history, [])
         self.assertEqual(self.browser.file_list_layout.count(), count)
         self.assertEqual(self.browser.status_label.text(), "Could not open this folder.")
         self.browser.refresh_files()
+        settle(self.browser)
         self.assertEqual(self.browser.status_label.toolTip(), "")
 
     def choose_action(self, file, label):
@@ -101,18 +109,24 @@ class FileNavigationTests(unittest.TestCase):
             actions[label].trigger()
         with patch("src.ui.file_browser.QMenu.exec", execute):
             self.browser.show_file_menu(file, QPoint(20, 20))
+        settle(self.browser)
 
     def test_context_actions_use_the_selected_item(self):
         opened, locations = [], []
         self.browser.program_clicked.connect(opened.append)
         self.browser.file_location_clicked.connect(locations.append)
         self.choose_action(self.file, "Open")
+        settle(self.browser)
         self.choose_action(self.file, "Open file location")
+        settle(self.browser)
         self.choose_action(self.folder, "Open in File Explorer")
+        settle(self.browser)
         self.choose_action(self.folder, "Open file location")
+        settle(self.browser)
         self.assertEqual(opened, [str(self.file), str(self.folder)])
         self.assertEqual(locations, [str(self.file), str(self.folder)])
         self.choose_action(self.folder, "Open")
+        settle(self.browser)
         self.assertEqual(self.browser.current_folder, self.folder)
 
     def test_right_click_does_not_activate_and_requests_correct_menu(self):
@@ -188,18 +202,27 @@ class FileNavigationTests(unittest.TestCase):
 
     def test_forward_history_and_new_branch(self):
         self.browser.open_item(self.folder)
+        settle(self.browser)
         self.browser.open_item(self.folder / "Second")
+        settle(self.browser)
         self.browser.go_back()
+        settle(self.browser)
         self.browser.go_back()
+        settle(self.browser)
         self.assertTrue(self.browser.forward_button.isEnabled())
         self.browser.forward_button.click()
+        settle(self.browser)
         self.assertEqual(self.browser.current_folder, self.folder)
         self.browser.go_forward()
+        settle(self.browser)
         self.assertEqual(self.browser.current_folder, self.folder / "Second")
         self.assertFalse(self.browser.forward_button.isEnabled())
         self.browser.go_back()
+        settle(self.browser)
         self.browser.go_back()
+        settle(self.browser)
         self.browser.open_item(self.folder)
+        settle(self.browser)
         self.assertEqual(self.browser.forward_history, [])
         self.assertFalse(self.browser.forward_button.isEnabled())
 
@@ -209,6 +232,7 @@ class FileNavigationTests(unittest.TestCase):
         self.assertTrue(self.browser.refresh_timer.isActive())
         with patch.object(self.browser, "traverse_level", side_effect=PermissionError("No access")):
             self.browser.open_item(self.folder)
+            settle(self.browser)
         self.assertTrue(self.browser.refresh_timer.isActive())
         self.assertTrue(self.browser._dirty)
         self.assertTrue(self.browser._loaded)
@@ -223,11 +247,15 @@ class FileNavigationTests(unittest.TestCase):
 
     def test_failed_forward_keeps_history_and_refresh_does_not_clear_it(self):
         self.browser.open_item(self.folder)
+        settle(self.browser)
         self.browser.go_back()
+        settle(self.browser)
         self.browser.refresh_files()
+        settle(self.browser)
         self.assertEqual(self.browser.forward_history, [(self.folder, 0)])
         with patch.object(self.browser, "traverse_level", side_effect=PermissionError("No access")):
             self.browser.go_forward()
+            settle(self.browser)
         self.assertEqual(self.browser.current_folder, self.root)
         self.assertEqual(self.browser.forward_history, [(self.folder, 0)])
         self.assertEqual(self.browser.folder_history, [])
@@ -238,68 +266,91 @@ class FileNavigationTests(unittest.TestCase):
                        self.browser.scroll_area.viewport(), self.browser.settings_button):
             with self.subTest(target=target.objectName()):
                 self.browser.open_item(self.folder)
+                settle(self.browser)
                 QTest.mouseClick(target, Qt.MouseButton.BackButton)
+                settle(self.browser)
                 self.assertEqual(self.browser.current_folder, self.root)
                 QTest.mouseClick(target, Qt.MouseButton.ForwardButton)
+                settle(self.browser)
                 self.assertEqual(self.browser.current_folder, self.folder)
                 self.browser.go_back()
+                settle(self.browser)
         self.browser.open_item(self.folder)
+        settle(self.browser)
         QTest.mouseClick(self.row_for(self.folder / "Second"), Qt.MouseButton.BackButton)
+        settle(self.browser)
         self.assertEqual(self.browser.current_folder, self.root)
 
     def test_keyboard_history_up_and_refresh(self):
         self.show_browser()
         self.browser.open_item(self.folder)
+        settle(self.browser)
         QTest.keyClick(self.browser.settings_button, Qt.Key.Key_Left, Qt.KeyboardModifier.AltModifier)
+        settle(self.browser)
         self.assertEqual(self.browser.current_folder, self.root)
         QTest.keyClick(self.browser.settings_button, Qt.Key.Key_Right, Qt.KeyboardModifier.AltModifier)
+        settle(self.browser)
         self.assertEqual(self.browser.current_folder, self.folder)
         QTest.keyClick(self.browser.settings_button, Qt.Key.Key_Backspace)
+        settle(self.browser)
         self.assertEqual(self.browser.current_folder, self.root)
         self.browser.go_forward()
+        settle(self.browser)
         QTest.keyClick(self.browser.settings_button, Qt.Key.Key_Up, Qt.KeyboardModifier.AltModifier)
+        settle(self.browser)
         self.assertEqual(self.browser.current_folder, self.root)
         for key, modifiers in ((Qt.Key.Key_F5, Qt.KeyboardModifier.NoModifier),
                                (Qt.Key.Key_R, Qt.KeyboardModifier.ControlModifier)):
             with patch.object(self.browser, "traverse_level", wraps=self.browser.traverse_level) as traverse:
                 QTest.keyClick(self.browser.settings_button, key, modifiers)
+                settle(self.browser)
                 traverse.assert_called_once_with(self.root)
 
     def test_arrow_keys_focus_rows_and_enter_activates(self):
         self.show_browser()
         QTest.keyClick(self.browser.settings_button, Qt.Key.Key_Down)
+        settle(self.browser)
         first = self.browser.file_list_layout.itemAt(0).widget()
         second = self.browser.file_list_layout.itemAt(1).widget()
         self.assertEqual(self.app.focusWidget(), first)
         QTest.keyClick(first, Qt.Key.Key_Down)
+        settle(self.browser)
         self.assertEqual(self.app.focusWidget(), second)
         QTest.keyClick(second, Qt.Key.Key_Home)
+        settle(self.browser)
         self.assertEqual(self.app.focusWidget(), first)
         QTest.keyClick(first, Qt.Key.Key_End)
+        settle(self.browser)
         self.assertEqual(self.app.focusWidget(), second)
         opened = []
         self.browser.program_clicked.connect(opened.append)
         row = self.row_for(self.file)
         row.setFocus()
         QTest.keyClick(row, Qt.Key.Key_Return)
+        settle(self.browser)
         self.assertEqual(opened, [str(self.file)])
         row = self.row_for(self.folder)
         row.setFocus()
         QTest.keyClick(row, Qt.Key.Key_Return)
+        settle(self.browser)
         self.assertEqual(self.browser.current_folder, self.folder)
 
     def test_settings_do_not_navigate_underneath(self):
         self.show_browser()
         self.browser.open_item(self.folder)
+        settle(self.browser)
         self.browser.show_settings_modal()
         QTest.qWait(220)
         combo = self.browser.settings_modal.theme_combo
         combo.setFocus()
         QTest.keyClick(combo, Qt.Key.Key_Left, Qt.KeyboardModifier.AltModifier)
+        settle(self.browser)
         self.assertEqual(self.browser.current_folder, self.folder)
         QTest.mouseClick(self.browser.settings_modal, Qt.MouseButton.ForwardButton)
+        settle(self.browser)
         self.assertEqual(self.browser.current_folder, self.folder)
         QTest.mouseClick(self.browser.settings_modal, Qt.MouseButton.BackButton)
+        settle(self.browser)
         QTest.qWait(220)
         self.assertTrue(self.browser.settings_modal.isHidden())
         self.assertEqual(self.browser.current_folder, self.folder)
@@ -333,14 +384,17 @@ class FileNavigationTests(unittest.TestCase):
     def test_back_restores_scroll_from_short_folder_to_long_folder(self):
         self.make_scrollable(self.root)
         self.browser.refresh_files()
+        settle(self.browser)
         self.show_browser()
         bar = self.browser.scroll_area.verticalScrollBar()
         bar.setValue(650)
         self.assertEqual(bar.value(), 650)
         self.browser.open_item(self.folder)
+        settle(self.browser)
         self.app.processEvents()
         self.assertEqual(bar.value(), 0)
         self.browser.go_back()
+        settle(self.browser)
         self.app.processEvents()
         self.assertEqual(self.browser.current_folder, self.root)
         self.assertEqual(bar.value(), 650)
@@ -349,31 +403,38 @@ class FileNavigationTests(unittest.TestCase):
         self.make_scrollable(self.root)
         self.make_scrollable(self.folder)
         self.browser.refresh_files()
+        settle(self.browser)
         self.show_browser()
         bar = self.browser.scroll_area.verticalScrollBar()
         bar.setValue(500)
         self.browser.open_item(self.folder)
+        settle(self.browser)
         self.app.processEvents()
         self.assertEqual(bar.value(), 0)
         bar.setValue(300)
         self.browser.go_back()
+        settle(self.browser)
         self.app.processEvents()
         self.assertEqual(bar.value(), 500)
         bar.setValue(700)
         self.browser.go_forward()
+        settle(self.browser)
         self.app.processEvents()
         self.assertEqual(bar.value(), 300)
         self.browser.go_back()
+        settle(self.browser)
         self.app.processEvents()
         self.assertEqual(bar.value(), 700)
 
     def test_refresh_and_extension_changes_preserve_scroll(self):
         self.make_scrollable(self.root)
         self.browser.refresh_files()
+        settle(self.browser)
         self.show_browser()
         bar = self.browser.scroll_area.verticalScrollBar()
         bar.setValue(600)
         self.browser.refresh_files()
+        settle(self.browser)
         self.app.processEvents()
         self.assertEqual(bar.value(), 600)
         self.browser.settings_modal.extensions_check.setChecked(True)
@@ -383,14 +444,17 @@ class FileNavigationTests(unittest.TestCase):
     def test_removed_files_clamp_restored_scroll_to_new_range(self):
         self.make_scrollable(self.root)
         self.browser.refresh_files()
+        settle(self.browser)
         self.show_browser()
         bar = self.browser.scroll_area.verticalScrollBar()
         bar.setValue(bar.maximum())
         previous_position = bar.value()
         self.browser.open_item(self.folder)
+        settle(self.browser)
         for i in range(20):
             (self.root / f"scroll-item-{i:02}.txt").unlink()
         self.browser.go_back()
+        settle(self.browser)
         self.app.processEvents()
         self.assertLess(bar.maximum(), previous_position)
         self.assertGreater(bar.maximum(), 0)
@@ -399,11 +463,13 @@ class FileNavigationTests(unittest.TestCase):
     def test_failed_navigation_keeps_scroll_and_history(self):
         self.make_scrollable(self.root)
         self.browser.refresh_files()
+        settle(self.browser)
         self.show_browser()
         bar = self.browser.scroll_area.verticalScrollBar()
         bar.setValue(500)
         with patch.object(self.browser, "traverse_level", side_effect=PermissionError("No access")):
             self.browser.open_item(self.folder)
+            settle(self.browser)
         self.assertEqual(bar.value(), 500)
         self.assertEqual(self.browser.folder_history, [])
 
@@ -411,6 +477,7 @@ class FileNavigationTests(unittest.TestCase):
     def test_keyboard_and_mouse_back_restore_scroll(self):
         self.make_scrollable(self.root)
         self.browser.refresh_files()
+        settle(self.browser)
         self.show_browser()
         bar = self.browser.scroll_area.verticalScrollBar()
         for use_mouse in (False, True):
@@ -419,12 +486,15 @@ class FileNavigationTests(unittest.TestCase):
                 row.setFocus()
                 bar.setValue(450)
                 QTest.keyClick(row, Qt.Key.Key_Return)
+                settle(self.browser)
                 self.app.processEvents()
                 self.assertEqual(self.browser.current_folder, self.folder)
                 if use_mouse:
                     QTest.mouseClick(self.browser.scroll_area.viewport(), Qt.MouseButton.BackButton)
+                    settle(self.browser)
                 else:
                     QTest.keyClick(self.browser.settings_button, Qt.Key.Key_Left, Qt.KeyboardModifier.AltModifier)
+                    settle(self.browser)
                 self.app.processEvents()
                 self.assertEqual(self.browser.current_folder, self.root)
                 self.assertEqual(bar.value(), 450)

@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import QApplication, QSystemTrayIcon
 from src.ui.file_browser import FileBrowser
 from src.ui.win_tray_app import WinTrayApp
 from src.utils import shell_actions
+from support import settle
 
 
 class NativePolishTests(unittest.TestCase):
@@ -45,6 +46,7 @@ class NativePolishTests(unittest.TestCase):
         self.addCleanup(browser.deleteLater)
         self.addCleanup(browser.hide)
         browser.create_list_items(self.root)
+        settle(browser)
         return browser
 
     def remove_fixture(self):
@@ -132,19 +134,25 @@ class NativePolishTests(unittest.TestCase):
         self.assertEqual([row.path.name for row in rows], ["alpha.txt", "beta.txt", "bravo.txt", "charlie.txt", "Docs"])
         rows[0].setFocus()
         QTest.keyClick(rows[0], "b")
+        settle(self.browser)
         self.assertEqual(self.focused_name(), "beta.txt")
         QTest.keyClick(self.browser.focusWidget(), "r")  # Quickly: the prefix grows to "br".
+        settle(self.browser)
         self.assertEqual(self.focused_name(), "bravo.txt")
         handler.typed_at -= 2  # A pause starts over.
         QTest.keyClick(self.browser.focusWidget(), "b")
+        settle(self.browser)
         self.assertEqual(self.focused_name(), "beta.txt")  # The next b-name after bravo, wrapping.
         QTest.keyClick(self.browser.focusWidget(), "b")  # The same letter again steps on.
+        settle(self.browser)
         self.assertEqual(self.focused_name(), "bravo.txt")
         handler.typed_at -= 2
         QTest.keyClick(self.browser.focusWidget(), "D")
+        settle(self.browser)
         self.assertEqual(self.focused_name(), "Docs")
         handler.typed_at -= 2
         QTest.keyClick(self.browser.focusWidget(), "z")
+        settle(self.browser)
         self.assertEqual(self.focused_name(), "Docs")  # Nothing starts with z; focus stays.
 
     def test_only_plain_printable_keys_count_as_typing(self):
@@ -170,6 +178,7 @@ class NativePolishTests(unittest.TestCase):
         row = self.row_for(self.folder)
         row.setFocus()
         QTest.keyClick(row, Qt.Key.Key_Right)
+        settle(self.browser)
         cascade = self.browser.cascade
         self.assertTrue(cascade.is_open())
         self.wait_for(lambda: cascade._menu.isVisible() and cascade._menu.filled)
@@ -177,10 +186,12 @@ class NativePolishTests(unittest.TestCase):
         self.assertEqual([action.text() for action in menu.actions()], ["Inner"])
         self.assertEqual(menu.activeAction().text(), "Inner")
         QTest.keyClick(menu, Qt.Key.Key_Left)
+        settle(self.browser)
         self.assertFalse(cascade.is_open())
         alpha = self.row_for(self.root / "alpha.txt")
         alpha.setFocus()
         QTest.keyClick(alpha, Qt.Key.Key_Right)  # A file has nothing to fan out.
+        settle(self.browser)
         self.assertFalse(cascade.is_open())
 
     def test_alt_enter_opens_properties_for_the_focused_row(self):
@@ -189,6 +200,7 @@ class NativePolishTests(unittest.TestCase):
         row.setFocus()
         with patch.object(shell_actions, "show_properties", return_value="") as properties:
             QTest.keyClick(row, Qt.Key.Key_Return, Qt.KeyboardModifier.AltModifier)
+            settle(self.browser)
         properties.assert_called_once_with(self.root / "alpha.txt")
 
     def test_middle_click_shows_the_item_in_explorer(self):
@@ -196,7 +208,9 @@ class NativePolishTests(unittest.TestCase):
         self.browser.program_clicked.connect(opened.append)
         self.browser.file_location_clicked.connect(located.append)
         QTest.mouseClick(self.row_for(self.folder), Qt.MouseButton.MiddleButton, pos=QPoint(8, 8))
+        settle(self.browser)
         QTest.mouseClick(self.row_for(self.root / "alpha.txt"), Qt.MouseButton.MiddleButton, pos=QPoint(8, 8))
+        settle(self.browser)
         self.assertEqual(opened, [str(self.folder)])
         self.assertEqual(located, [str(self.root / "alpha.txt")])
         self.assertEqual(self.browser.current_folder, self.root)
@@ -204,11 +218,14 @@ class NativePolishTests(unittest.TestCase):
     def test_reopen_where_i_left_off_keeps_the_folder_and_history_and_survives_a_restart(self):
         modal = self.browser.settings_modal
         self.browser.navigate_to(self.folder)
+        settle(self.browser)
         self.browser.reset_location()
         self.assertEqual(self.browser.current_folder, self.root)
         modal.reopen_check.setChecked(True)
         self.browser.navigate_to(self.folder)
+        settle(self.browser)
         self.browser.navigate_to(self.folder / "Inner")
+        settle(self.browser)
         self.browser.reset_location()
         self.assertEqual(self.browser.current_folder, self.folder / "Inner")
         self.assertEqual(len(self.browser.folder_history), 2)

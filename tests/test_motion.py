@@ -16,6 +16,7 @@ from src.ui import motion
 from src.ui.custom_widgets.ghost import Ghost
 from src.ui.custom_widgets.page_transition import PageTransition
 from src.ui.file_browser import FileBrowser
+from support import settle
 
 
 def ghosts(app):
@@ -139,6 +140,7 @@ class BrowserMotionTests(unittest.TestCase):
         self.browser.move(100, 100)
         self.addCleanup(self.browser.deleteLater)
         self.browser.create_list_items(self.root)
+        settle(self.browser)
 
     def overlays(self):
         return [widget for widget in self.browser.scroll_area.viewport().children()
@@ -161,6 +163,7 @@ class BrowserMotionTests(unittest.TestCase):
             (self.browser.go_up, -1),
         ):
             move()
+            settle(self.browser)  # The drill plays once the folder has been read.
             self.assertEqual([overlay.direction for overlay in self.overlays()], [direction])
             QTest.qWait(400)
             self.assertEqual(self.overlays(), [])
@@ -168,6 +171,7 @@ class BrowserMotionTests(unittest.TestCase):
 
     def test_a_hidden_panel_navigates_without_a_transition(self):
         self.browser.navigate_to(self.root / "Inner")
+        settle(self.browser)
         self.assertEqual(self.browser.current_folder, self.root / "Inner")
         self.assertEqual(self.overlays(), [])
 

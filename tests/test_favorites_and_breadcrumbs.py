@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import QApplication, QPushButton
 from src.ui.file_browser import FileBrowser
 from src.ui.breadcrumbs import Breadcrumbs
 from src.utils.favorites import Favorites
+from support import settle
 
 
 class FavoritesTests(unittest.TestCase):
@@ -34,6 +35,7 @@ class FavoritesTests(unittest.TestCase):
         self.addCleanup(self.browser.deleteLater)
         self.addCleanup(self.browser.hide)
         self.browser.create_list_items(self.root)
+        settle(self.browser)
 
     def remove_fixture(self):
         self.settings.sync()
@@ -78,6 +80,7 @@ class FavoritesTests(unittest.TestCase):
         folder = self.root / "Child"
         folder.mkdir()
         self.browser.navigate_to(folder)
+        settle(self.browser)
         opened = []
         self.browser.program_clicked.connect(opened.append)
         def choose(menu, position):
@@ -96,12 +99,16 @@ class FavoritesTests(unittest.TestCase):
         folder.mkdir()
         self.browser.desktop_folder = self.root
         self.browser.navigate_to(folder)
+        settle(self.browser)
         breadcrumb = self.browser.path_label
         breadcrumb.linkActivated.emit(str(breadcrumb.paths.index(self.root)))
+        settle(self.browser)
         self.assertEqual(self.browser.current_folder, self.root)
         self.browser.go_back()
+        settle(self.browser)
         self.assertEqual(self.browser.current_folder, folder)
         self.browser.home_button.click()
+        settle(self.browser)
         self.assertEqual(self.browser.current_folder, self.root)
 
     def test_breadcrumb_overflow_escapes_names_and_opens_ancestor(self):

@@ -20,6 +20,7 @@ from src.ui.file_browser import FileBrowser
 from src.ui.settings.settings_modal import SettingsModal
 from src.utils.file_icons import FileIcons
 from src.utils.file_listing import list_folder
+from support import settle
 
 
 class FolderListingTests(unittest.TestCase):
@@ -80,6 +81,7 @@ class FolderCascadeTests(unittest.TestCase):
         self.addCleanup(self.browser.deleteLater)
         self.addCleanup(self.browser.hide)
         self.browser.create_list_items(self.root)
+        settle(self.browser)
         self.browser.show()
         self.app.processEvents()
         self.cascade = self.browser.cascade
@@ -136,6 +138,7 @@ class FolderCascadeTests(unittest.TestCase):
         (chain / "B" / "C" / "f.txt").write_text("f", encoding="utf-8")
         self.browser.resize(300, 640)
         self.browser.create_list_items()
+        settle(self.browser)
         screen = self.browser.screen().availableGeometry()
         for x, leftward in ((screen.right() - 300, True), (screen.left(), False)):
             self.cascade.close()
@@ -226,6 +229,7 @@ class FolderCascadeTests(unittest.TestCase):
         QTest.mousePress(row, Qt.MouseButton.LeftButton, pos=QPoint(8, 8))
         self.assertFalse(self.cascade.timer.isActive())
         QTest.mouseRelease(row, Qt.MouseButton.LeftButton, pos=QPoint(8, 8))
+        settle(self.browser)
         self.assertEqual(self.browser.current_folder, self.folder)
         self.assertFalse(self.cascade.is_open())
 
@@ -252,6 +256,7 @@ class FolderCascadeTests(unittest.TestCase):
         menu = self.open_menu()
         target = menu.actionGeometry(menu.actions()[0]).center()
         QTest.mouseClick(menu, Qt.MouseButton.LeftButton, pos=target)
+        settle(self.browser)
         self.assertEqual(self.browser.current_folder, self.nested)
         self.assertFalse(self.cascade.is_open())
         self.assertEqual(self.browser.folder_history, [(self.root, 0)])
@@ -292,6 +297,7 @@ class FolderCascadeTests(unittest.TestCase):
         QTest.mousePress(menu, Qt.MouseButton.LeftButton, pos=target)
         self.assertFalse(self.cascade.is_open())
         QTest.mouseRelease(other, Qt.MouseButton.LeftButton, pos=QPoint(8, 8))
+        settle(self.browser)
         self.assertEqual(self.browser.current_folder, self.other)
 
     def test_a_click_outside_the_panel_dismisses_everything(self):
@@ -327,12 +333,14 @@ class FolderCascadeTests(unittest.TestCase):
         menu = self.open_menu()
         (self.root / "new.txt").write_text("new", encoding="utf-8")
         self.browser.create_list_items()
+        settle(self.browser)
         self.app.processEvents()
         self.assertIsNotNone(self.row_for(self.root / "new.txt"))
         self.assertIs(self.cascade._menu, menu)
         self.assertEqual(self.row_for(self.folder).property("cascaded"), "true")
         shutil.rmtree(self.folder)
         self.browser.create_list_items()
+        settle(self.browser)
         self.app.processEvents()
         self.assertFalse(self.cascade.is_open())
 
@@ -354,6 +362,7 @@ class FolderCascadeTests(unittest.TestCase):
         more = menu.actions()[-1]
         self.assertEqual(more.text(), f"Show all {self.cascade.MAX_ITEMS + 6} items")
         more.trigger()
+        settle(self.browser)
         self.assertEqual(self.browser.current_folder, self.other)
         self.assertFalse(self.cascade.is_open())
 
@@ -418,6 +427,7 @@ class FolderCascadeTests(unittest.TestCase):
         for index in range(40):  # Named to sort after the folders, which stay in view.
             (self.root / f"z-file-{index:02d}.txt").write_text("x", encoding="utf-8")
         self.browser.create_list_items()
+        settle(self.browser)
         self.app.processEvents()
         bar = self.browser.scroll_area.verticalScrollBar()
         self.assertGreater(bar.maximum(), 0)

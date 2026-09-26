@@ -1,4 +1,6 @@
+import sys
 from collections import deque
+from dataclasses import dataclass
 from pathlib import Path
 from time import monotonic
 
@@ -25,9 +27,21 @@ from src.ui.settings.settings_modal import SettingsModal
 from src.ui.keyboard_handler import KeyboardHandler
 from src.utils.file_icons import FileIcons
 from src.utils.icon_reader import IconReader
+from src.utils.thread_executor import ThreadExecutor
 from src.utils.file_listing import (FileEntry, describe_file, extension_kinds, file_stamp,
                                     filter_options, visible_entries)
 from src.utils import shell_actions, window_effects
+
+
+@dataclass
+class ScanRequest:
+    """One read of a folder on a worker, and what to do with it once it lands."""
+    generation: int
+    folder: Path
+    scroll_position: int
+    force: bool
+    changes: int
+    done: object = None
 
 
 class FileBrowser(QWidget):
@@ -87,6 +101,15 @@ class FileBrowser(QWidget):
         self._generic_icons = {}
         self._icon_queue = deque()
         self._icon_reading = False
+
+        # Folders are read on a worker; the newest request owns the panel and older ones are dropped.
+        self._scan_generation = 0
+        self._scan_pending = False
+        self._changes = 0
+        self.slow_scan_timer = QTimer(self)
+        self.slow_scan_timer.setSingleShot(True)
+        self.slow_scan_timer.setInterval(150)
+        self.slow_scan_timer.timeout.connect(self.show_slow_scan)
 
         self.folder_history = []
         self.forward_history = []
@@ -239,17 +262,23 @@ class FileBrowser(QWidget):
         return not self.watcher.directories() and self.sources_changed()
 
     def ensure_loaded(self):
-        if self.needs_scan():
+        if self.needs_scan() and not self._scan_pending:
             self.create_list_items()
 
     def mark_dirty(self, *_):
         self._dirty = True
+        self._changes += 1
         if self.isVisible():
             self.refresh_timer.start()
 
     def refresh_if_visible(self):
-        if self.isVisible() and self._dirty:
-            self.create_list_items()
+        if not (self.isVisible() and self._dirty):
+            return
+        if self._scan_pending:
+            # A background refresh never cancels a folder someone asked for; try once it lands.
+            self.refresh_timer.start()
+            return
+        self.create_list_items()
 
     def scan_sources(self, folder):
         return self.desktop_paths.sources() if folder == self.desktop_paths.primary else [folder]
@@ -286,6 +315,11 @@ class FileBrowser(QWidget):
         self.folder_history.clear()
         self.forward_history.clear()
         self.update_navigation_buttons()
+        # A read still in flight goes with the session it belonged to, even one that had not yet
+        # left the Desktop: otherwise it lands after the reopen and walks the panel off again.
+        self._scan_generation += 1
+        self._scan_pending = False
+        self.slow_scan_timer.stop()
         if self.current_folder == self.desktop_folder:
             return
         self.current_folder = self.desktop_folder
@@ -340,53 +374,108 @@ class FileBrowser(QWidget):
     def update_file_labels(self):
         self.render_entries(self.scroll_area.verticalScrollBar().value())
 
-    def create_list_items(self, folder=None, scroll_position=None, force=False):
+    def create_list_items(self, folder=None, scroll_position=None, force=False, done=None):
+        """Read a folder on a worker, then show it on the UI thread; `done(ok)` runs once it lands.
+
+        A share that stops answering can hold a directory read for the whole SMB timeout, so the
+        UI thread never reads a folder itself. A newer request supersedes an older one: whatever
+        the older one finds is dropped rather than shown over the folder asked for since.
+        """
+
         folder = Path(folder) if folder is not None else self.current_folder
         if scroll_position is None:
             scroll_position = self.scroll_area.verticalScrollBar().value() if folder == self.current_folder else 0
-        try:
-            if folder == self.desktop_folder:
-                if self.desktop_folder == self.desktop_paths.primary:
-                    files, scan_errors = self.desktop_paths.list_files(self.traverse_level)
-                else:
-                    files, scan_errors = self.traverse_level(folder), []
-            else:
-                files, scan_errors = self.traverse_level(folder), []
-        except OSError as error:
-            self.status_label.setText("Could not open this folder.")
-            self.status_label.setToolTip(str(error))
-            if folder == self.current_folder:
-                # Keep this folder unloaded so the next open tries it again. A folder we
-                # failed to navigate *to* must leave the shown folder's refresh alone.
-                self._dirty = True
-                self._loaded = False
-                self._last_scan = monotonic()
-                self.refresh_timer.stop()
-                self.watch_folder()
-                self.show_message("Could not open this folder.", str(error), retry=True)
-            return False
+        self._scan_generation += 1
+        request = ScanRequest(self._scan_generation, folder, scroll_position, force, self._changes, done)
+        self._scan_pending = True
+        self.slow_scan_timer.start()
+        # The worker reads a copy: the UI thread keeps changing the live cache while it runs.
+        cache = dict(self._entry_cache)
+        result = {}
 
-        rescan = folder == self.current_folder
-        if not rescan:
-            self.clear_search()
+        def scan():
+            result.update(self.scan_folder(folder, cache, force))
+
+        executor = ThreadExecutor(scan, retries=0)
+        executor.success.connect(lambda *_: self.scan_landed(request, result, []))
+        executor.errors.connect(lambda errors: self.scan_landed(request, result, errors))
+        executor.run_task()
+
+    def scan_folder(self, folder, cache, force):
+        """Everything a listing needs from the disk. Runs on a worker, so it touches no widget."""
+
+        if folder == self.desktop_folder and self.desktop_folder == self.desktop_paths.primary:
+            files, scan_errors = self.desktop_paths.list_files(self.traverse_level)
+        else:
+            files, scan_errors = self.traverse_level(folder), []
         entries = []
         for file in files:
-            cached = self._entry_cache.get(file)
+            cached = cache.get(file)
             try:
                 info = file.stat()
             except OSError as error:
                 # describe_file must not make a second attempt after stat fails.
-                entry = FileEntry(file, extension_kinds(file), error=str(error))
+                entries.append(FileEntry(file, extension_kinds(file), error=str(error)))
+                continue
+            if getattr(info, "st_file_attributes", 0) & self.HIDDEN_ATTRIBUTE:
+                continue  # Explorer keeps hidden items such as desktop.ini out of the list.
+            if not force and cached is not None and cached.stamp == file_stamp(info):
+                entries.append(cached)
             else:
-                if getattr(info, "st_file_attributes", 0) & self.HIDDEN_ATTRIBUTE:
-                    continue  # Explorer keeps hidden items such as desktop.ini out of the list.
-                if not force and cached is not None and cached.stamp == file_stamp(info):
-                    entry = cached
-                else:
-                    entry = describe_file(file, info)
-            if force:
-                self._icons.pop(file, None)
-            entries.append(entry)
+                entries.append(describe_file(file, info))
+        stamps = {}
+        for source in self.scan_sources(folder):
+            try:
+                stamps[source] = file_stamp(source.stat())
+            except OSError:
+                pass
+
+        return {"entries": entries, "scan_errors": scan_errors, "stamps": stamps}
+
+    def scan_landed(self, request, result, errors):
+        if sip.isdeleted(self) or request.generation != self._scan_generation:
+            return  # Superseded: a newer request owns the panel now.
+        self._scan_pending = False
+        self.slow_scan_timer.stop()
+        if errors:
+            self.scan_failed(request.folder, errors[-1])
+        else:
+            self.commit_scan(request, result)
+        if request.done is not None:
+            request.done(not errors)
+
+    def scan_failed(self, folder, error):
+        if not isinstance(error, OSError):
+            # Not a folder that could not be read but a bug: show its traceback rather than hide it.
+            sys.excepthook(type(error), error, error.__traceback__)
+        self.status_label.setText("Could not open this folder.")
+        self.status_label.setToolTip(str(error))
+        if folder == self.current_folder:
+            # Keep this folder unloaded so the next open tries it again. A folder we
+            # failed to navigate *to* must leave the shown folder's refresh alone.
+            self._dirty = True
+            self._loaded = False
+            self._last_scan = monotonic()
+            self.refresh_timer.stop()
+            self.watch_folder()
+            self.show_message("Could not open this folder.", str(error), retry=True)
+
+    def show_slow_scan(self):
+        """A folder that takes a moment says so, rather than leaving the last one up in silence."""
+
+        if self._scan_pending:
+            self.status_label.setText("Loading…")
+            self.status_label.setToolTip("")
+
+    def commit_scan(self, request, result):
+        folder, force = request.folder, request.force
+        entries = result["entries"]
+        rescan = folder == self.current_folder
+        if not rescan:
+            self.clear_search()
+        if force:
+            for entry in entries:
+                self._icons.pop(entry.path, None)
         if rescan:
             for path in {entry.path for entry in self.entries} - {entry.path for entry in entries}:
                 self._entry_cache.pop(path, None)
@@ -398,17 +487,14 @@ class FileBrowser(QWidget):
             self._entry_cache = {entry.path: entry for entry in entries}
         if len(self._icons) > self.CACHE_LIMIT:
             self._icons = {path: icon for path, icon in self._icons.items() if path in self._entry_cache}
-        self.folder_stamps = {}
-        for source in self.scan_sources(folder):
-            try:
-                self.folder_stamps[source] = file_stamp(source.stat())
-            except OSError:
-                pass
-        self._dirty = False
+        self.folder_stamps = result["stamps"]
+        # A change the watcher reported while the worker was reading may not be in what it read.
+        self._dirty = self._changes != request.changes
         self._loaded = True
         self._last_scan = monotonic()
-        self.refresh_timer.stop()
-        self._scan_errors = [f"{path}: {error}" for path, error in scan_errors]
+        if not self._dirty:
+            self.refresh_timer.stop()
+        self._scan_errors = [f"{path}: {error}" for path, error in result["scan_errors"]]
         self._scan_errors.extend(f"{entry.path}: {entry.error}" for entry in self.entries if entry.error)
         previous_filter = self.filter_combo.currentData()
         self.filter_combo.blockSignals(True)
@@ -424,8 +510,7 @@ class FileBrowser(QWidget):
             self.preferences.setValue("files/last_folder", str(folder))
         if force:
             self._rendered_state = None
-        self.render_entries(scroll_position)
-        return True
+        self.render_entries(request.scroll_position)
 
     def apply_filters(self):
         self.render_entries(0)
@@ -663,11 +748,15 @@ class FileBrowser(QWidget):
         previous_location = self.current_location()
         forward = not self.current_folder.is_relative_to(folder)
         before = self.page_before()
-        if self.create_list_items(folder):
-            self.folder_history.append(previous_location)
-            self.forward_history.clear()
-            self.update_navigation_buttons()
-            self.page_after(before, forward)
+
+        def landed(ok):
+            if ok:
+                self.folder_history.append(previous_location)
+                self.forward_history.clear()
+                self.update_navigation_buttons()
+                self.page_after(before, forward)
+
+        self.create_list_items(folder, done=landed)
 
     def go_back(self):
         if not self.folder_history:
@@ -675,11 +764,15 @@ class FileBrowser(QWidget):
         previous_location = self.current_location()
         folder, scroll_position = self.folder_history[-1]
         before = self.page_before()
-        if self.create_list_items(folder, scroll_position):
-            self.folder_history.pop()
-            self.forward_history.append(previous_location)
-            self.update_navigation_buttons()
-            self.page_after(before, forward=False)
+
+        def landed(ok):
+            if ok:
+                self.folder_history.pop()
+                self.forward_history.append(previous_location)
+                self.update_navigation_buttons()
+                self.page_after(before, forward=False)
+
+        self.create_list_items(folder, scroll_position, done=landed)
 
     def go_forward(self):
         if not self.forward_history:
@@ -687,11 +780,15 @@ class FileBrowser(QWidget):
         previous_location = self.current_location()
         folder, scroll_position = self.forward_history[-1]
         before = self.page_before()
-        if self.create_list_items(folder, scroll_position):
-            self.forward_history.pop()
-            self.folder_history.append(previous_location)
-            self.update_navigation_buttons()
-            self.page_after(before, forward=True)
+
+        def landed(ok):
+            if ok:
+                self.forward_history.pop()
+                self.folder_history.append(previous_location)
+                self.update_navigation_buttons()
+                self.page_after(before, forward=True)
+
+        self.create_list_items(folder, scroll_position, done=landed)
 
     def go_home(self):
         self.navigate_to(self.desktop_folder)
@@ -917,4 +1014,5 @@ class FileBrowser(QWidget):
         self.settings_modal.hide_settings()
 
     def refresh_files(self):
-        self.create_list_items(force=True)
+        if not self._scan_pending:
+            self.create_list_items(force=True)

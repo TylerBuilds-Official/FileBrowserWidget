@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import QApplication
 from PyQt6.QtTest import QTest
 from src.ui.file_browser import FileBrowser
 from src.ui.win_tray_app import WinTrayApp
+from support import settle
 
 
 class BrowserCacheTests(unittest.TestCase):
@@ -32,6 +33,7 @@ class BrowserCacheTests(unittest.TestCase):
         self.browser = FileBrowser()
         self.browser.resize(400, 640)
         self.browser.create_list_items(self.root)
+        settle(self.browser)
         self.drain_icons()
 
     def drain_icons(self):
@@ -80,6 +82,7 @@ class BrowserCacheTests(unittest.TestCase):
 
         with patch.object(self.browser.icon_provider, "icon", side_effect=record) as icons:
             self.browser.create_list_items(force=True)
+            settle(self.browser)
             # The first batch is already on its way; the rest wait, and every row has a picture.
             self.assertEqual(len(self.browser._icon_queue), 20 - self.browser.ICON_BATCH)
             self.assertTrue(self.browser._icon_reading)
@@ -96,6 +99,7 @@ class BrowserCacheTests(unittest.TestCase):
         changed.write_text("a longer file")
         with patch.object(self.browser.icon_provider, "icon", wraps=self.browser.icon_provider.icon) as icons:
             self.browser.create_list_items()
+            settle(self.browser)
             self.drain_icons()
             icons.assert_called_once_with(changed)
         self.assertIsNot(self.browser._entry_cache[changed], entries[changed])
@@ -106,6 +110,7 @@ class BrowserCacheTests(unittest.TestCase):
         self.browser.search_edit.setText("not-found")
         removed.unlink()
         self.browser.create_list_items()
+        settle(self.browser)
         self.assertNotIn(removed, self.browser._rows)
         self.assertNotIn(removed, self.browser._icons)
 
@@ -123,12 +128,15 @@ class BrowserCacheTests(unittest.TestCase):
         child.mkdir()
         (child / "other.txt").touch()
         self.browser.create_list_items()
+        settle(self.browser)
         self.drain_icons()
         kept = self.root / "item-00.txt"
         self.browser.navigate_to(child)
+        settle(self.browser)
         self.drain_icons()
         with patch.object(self.browser.icon_provider, "icon") as icons:
             self.browser.go_back()
+            settle(self.browser)
             self.drain_icons()
             icons.assert_not_called()
         self.assertIn(kept, self.browser._icons)
@@ -138,18 +146,21 @@ class BrowserCacheTests(unittest.TestCase):
         hidden.write_text("secret")
         subprocess.run(["attrib", "+H", str(hidden)], check=True)
         self.browser.create_list_items()
+        settle(self.browser)
         self.assertNotIn(hidden, self.browser._entry_cache)
         self.assertIn(self.root / "item-00.txt", self.browser._entry_cache)
 
     def test_unreadable_current_folder_offers_a_retry_and_reloads_on_reopen(self):
         with patch.object(self.browser, "traverse_level", side_effect=PermissionError("Access denied")):
             self.browser.create_list_items()
+            settle(self.browser)
             self.assertEqual(self.browser.file_list_layout.itemAt(0).widget().text(),
                              "Could not open this folder.")
             retry = self.browser.file_list_layout.itemAt(2).widget()
             self.assertEqual(retry.text(), "Try again")
             self.assertTrue(self.browser.needs_scan())
         retry.click()
+        settle(self.browser)
         self.assertIn(self.root / "item-00.txt", self.browser._entry_cache)
 
     def test_hidden_panel_releases_its_watches(self):
@@ -166,6 +177,7 @@ class BrowserCacheTests(unittest.TestCase):
         child = self.root / "Child"
         child.mkdir()
         self.browser.create_list_items(child)
+        settle(self.browser)
         self.browser.show()
         self.app.processEvents()
         moved = self.root.with_name(self.root.name + "-moved")
@@ -181,9 +193,11 @@ class BrowserCacheTests(unittest.TestCase):
         self.browser.hide()
         with patch.object(self.browser, "traverse_level") as scan:
             self.browser.ensure_loaded()
+            settle(self.browser)
             scan.assert_not_called()
         (self.root / "new-item.txt").touch()
         self.browser.ensure_loaded()
+        settle(self.browser)
         self.assertIn(self.root / "new-item.txt", self.browser._entry_cache)
 
     def test_reopening_returns_to_the_desktop_and_shows_before_scanning(self):
@@ -191,6 +205,7 @@ class BrowserCacheTests(unittest.TestCase):
         child.mkdir()
         self.browser.desktop_folder = self.root
         self.browser.navigate_to(child)
+        settle(self.browser)
         self.browser.hide()
         app = SimpleNamespace(file_browser=self.browser, reposition_popup=lambda: None)
         with patch.object(self.browser, "create_list_items") as scan:
@@ -199,7 +214,8 @@ class BrowserCacheTests(unittest.TestCase):
             self.assertEqual(self.browser.folder_history, [])
             self.assertEqual(self.browser.file_list_layout.itemAt(0).widget().text(), "Loading…")
             scan.assert_not_called()
-        QTest.qWait(20)
+        QTest.qWait(20)  # The panel is up; the read it deferred starts now.
+        settle(self.browser)
         self.assertIn(self.root / "item-00.txt", self.browser._entry_cache)
 
     def test_reopening_drops_history_even_when_it_ends_on_the_desktop(self):
@@ -207,7 +223,9 @@ class BrowserCacheTests(unittest.TestCase):
         child.mkdir()
         self.browser.desktop_folder = self.root
         self.browser.navigate_to(child)
+        settle(self.browser)
         self.browser.go_home()
+        settle(self.browser)
         self.assertTrue(self.browser.folder_history)
         self.browser.reset_location()
         self.assertEqual(self.browser.folder_history, [])
@@ -230,6 +248,7 @@ class BrowserCacheTests(unittest.TestCase):
         QTest.qWait(250)
         self.assertNotIn(another, self.browser._entry_cache)
         self.browser.ensure_loaded()
+        settle(self.browser)
         self.assertIn(another, self.browser._entry_cache)
 
 

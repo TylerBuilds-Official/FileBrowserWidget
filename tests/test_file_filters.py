@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import QApplication
 
 from src.ui.file_browser import FileBrowser
 from src.utils.file_listing import describe_file, filter_options, visible_entries
+from support import settle
 
 
 class FileFilterTests(unittest.TestCase):
@@ -33,6 +34,7 @@ class FileFilterTests(unittest.TestCase):
         self.addCleanup(self.browser.deleteLater)
         self.addCleanup(self.browser.hide)
         self.browser.create_list_items(self.root)
+        settle(self.browser)
 
     def remove_fixture(self):
         assert self.root.resolve().parent == Path(__file__).resolve().parent
@@ -54,6 +56,7 @@ class FileFilterTests(unittest.TestCase):
         self.assertNotIn("ext:.pdf", values)
         self.assertEqual(values["games"], "Games (1)")
         self.browser.navigate_to(self.root / "Folder")
+        settle(self.browser)
         self.assertEqual(self.browser.filter_combo.count(), 1)
 
     def test_game_detection_uses_target_not_filename(self):
@@ -80,6 +83,7 @@ class FileFilterTests(unittest.TestCase):
 
         with patch.object(Path, "stat", deny_locked):
             self.browser.create_list_items(force=True)
+            settle(self.browser)
         self.assertEqual(self.browser._entry_cache[locked].kinds, {"no_extension"})
         labels = [label for label, value in filter_options(self.browser.entries)]
         self.assertIn("No extension (1)", labels)
@@ -184,8 +188,10 @@ class FileFilterTests(unittest.TestCase):
     def test_navigation_clears_query_and_refresh_keeps_it(self):
         self.browser.search_edit.setText("Notes")
         self.browser.refresh_files()
+        settle(self.browser)
         self.assertEqual(self.browser.search_edit.text(), "Notes")
         self.browser.navigate_to(self.root / "Folder")
+        settle(self.browser)
         self.assertEqual(self.browser.search_edit.text(), "")
 
 
