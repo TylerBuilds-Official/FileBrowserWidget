@@ -50,6 +50,9 @@ class BrowserCacheTests(unittest.TestCase):
         shutil.rmtree(self.root)
 
     def test_reopen_does_no_scan_or_icon_work(self):
+        # Open, as it is by the time show_browser has it load: a hidden panel holds no watches.
+        self.browser.show()
+        self.app.processEvents()
         rows = dict(self.browser._rows)
         with patch.object(self.browser, "traverse_level") as scan, \
                 patch.object(self.browser.icon_provider, "icon") as icons, \

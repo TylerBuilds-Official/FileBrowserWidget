@@ -118,6 +118,19 @@ class AsyncScanTests(unittest.TestCase):
         settle(self.browser)
         self.assertFalse(self.browser._dirty)
 
+    def test_a_read_that_lands_after_the_panel_closes_leaves_it_holding_no_handles(self):
+        self.browser.show()
+        self.app.processEvents()
+        with patch.object(self.browser, "traverse_level", self.slowed(self.slow, 0.3)):
+            self.browser.navigate_to(self.slow)
+            self.browser.hide()  # Closed before the folder was read.
+            settle(self.browser)
+        self.assertEqual(self.browser.current_folder, self.slow)
+        self.assertEqual(self.browser.watcher.directories(), [])  # Explorer can still rename what is above.
+        self.browser.show()
+        self.app.processEvents()
+        self.assertIn(str(self.slow), self.browser.watcher.directories())
+
     def test_reopening_drops_a_read_still_in_flight(self):
         with patch.object(self.browser, "traverse_level", self.slowed(self.slow, 0.3)):
             self.browser.navigate_to(self.slow)

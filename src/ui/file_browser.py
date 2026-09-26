@@ -306,6 +306,10 @@ class FileBrowser(QWidget):
         return False
 
     def watch_folder(self):
+        if not self.isVisible():
+            # A read can land after the panel has closed; a hidden panel holds no handles, so
+            # Explorer can still rename what is above. Showing the panel watches again.
+            return
         # Watching parents also catches a removed directory being recreated. A folder on another
         # machine is polled instead: adding a watch asks the folder about itself on this thread,
         # and a sleeping server would hold the panel until it answered.
