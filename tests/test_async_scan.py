@@ -8,7 +8,7 @@ from uuid import uuid4
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import QThread
+from PyQt6.QtCore import QAbstractAnimation, QThread
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication
 
@@ -117,6 +117,30 @@ class AsyncScanTests(unittest.TestCase):
         self.browser.create_list_items()
         settle(self.browser)
         self.assertFalse(self.browser._dirty)
+
+    def test_a_reread_that_lands_keeps_the_scrolling_done_while_it_read(self):
+        for index in range(60):
+            (self.root / f"file-{index:02d}.txt").write_text("x", encoding="utf-8")
+        self.browser.create_list_items()
+        settle(self.browser)
+        self.browser.show()  # The list only has a scroll range once it has a viewport to scroll in.
+        self.app.processEvents()
+        bar = self.browser.scroll_area.verticalScrollBar()
+        self.assertGreater(bar.maximum(), 150)
+        for change in ("nothing new", "a file arrived"):
+            with self.subTest(change), patch.object(self.browser, "traverse_level", self.slowed(self.root, 0.2)):
+                if change == "a file arrived":
+                    (self.root / "arrived.txt").write_text("x", encoding="utf-8")
+                bar.setValue(0)
+                self.browser.create_list_items()  # A background reread starts with the list at the top,
+                bar.setValue(150)  # and the list is scrolled while it reads.
+                settle(self.browser)
+                self.assertEqual(bar.value(), 150)
+        # A reread that finds nothing new leaves a wheel's glide running rather than cutting it short.
+        glide = self.browser.smooth_scroll.vertical
+        glide.scroll(120)
+        self.browser.render_entries(None)  # What such a reread does when it lands.
+        self.assertEqual(glide.animation.state(), QAbstractAnimation.State.Running)
 
     def test_a_read_that_lands_after_the_panel_closes_leaves_it_holding_no_handles(self):
         self.browser.show()

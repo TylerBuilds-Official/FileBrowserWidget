@@ -40,7 +40,7 @@ class ScanRequest:
     """One read of a folder on a worker, and what to do with it once it lands."""
     generation: int
     folder: Path
-    scroll_position: int
+    scroll_position: int | None  # None: wherever the list has been scrolled to by the time it lands.
     force: bool
     changes: int
     done: object = None
@@ -414,8 +414,10 @@ class FileBrowser(QWidget):
         """
 
         folder = Path(folder) if folder is not None else self.current_folder
-        if scroll_position is None:
-            scroll_position = self.scroll_area.verticalScrollBar().value() if folder == self.current_folder else 0
+        # A reread of the folder shown keeps no position of its own: taking one now would undo,
+        # when it lands, any scrolling done while it read.
+        if scroll_position is None and folder != self.current_folder:
+            scroll_position = 0
         self._scan_generation += 1
         request = ScanRequest(self._scan_generation, folder, scroll_position, force, self._changes, done)
         self._scan_pending = True
@@ -579,6 +581,9 @@ class FileBrowser(QWidget):
         self.filter_menu.clear_button.setEnabled(active)
 
     def render_entries(self, scroll_position=0):
+        keep = scroll_position is None  # Leave the list where it is, unless the rows themselves change.
+        if keep:
+            scroll_position = self.scroll_area.verticalScrollBar().value()
         self.update_filter_button()
         entries = visible_entries(self.entries, self.search_edit.text(),
                                   self.filter_combo.currentData(), self.sort_combo.currentData())
@@ -598,7 +603,8 @@ class FileBrowser(QWidget):
                         self.favorites.contains(entry.path)) for entry in entries),
                  self.settings_modal.show_extensions)
         if state == self._rendered_state:
-            self.restore_scroll_position(scroll_position)
+            if not keep:
+                self.restore_scroll_position(scroll_position)  # Which also stops a smooth scroll midway.
             return True
         self._rendered_state = state
         focused = self.focusWidget()
