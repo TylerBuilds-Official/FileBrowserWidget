@@ -221,7 +221,7 @@ class NativePolishTests(unittest.TestCase):
         settle(self.browser)
         self.browser.reset_location()
         self.assertEqual(self.browser.current_folder, self.root)
-        modal.reopen_check.setChecked(True)
+        modal.start_combo.setCurrentIndex(modal.start_combo.findData("last"))
         self.browser.navigate_to(self.folder)
         settle(self.browser)
         self.browser.navigate_to(self.folder / "Inner")
@@ -235,6 +235,25 @@ class NativePolishTests(unittest.TestCase):
         self.addCleanup(restarted.deleteLater)
         self.assertEqual(restarted.current_folder, self.folder / "Inner")
         self.assertEqual(restarted.title_label._name, "Inner")
+
+    def test_the_panel_opens_where_settings_say_it_starts(self):
+        modal = self.browser.settings_modal
+        with patch("src.utils.locations.user_folders", return_value=[("Documents", self.folder)]):
+            modal.start_combo.setCurrentIndex(modal.start_combo.findData("documents"))
+            self.browser.navigate_to(self.folder / "Inner")
+            settle(self.browser)
+            self.browser.reset_location()  # Closed and opened again.
+            self.assertEqual(self.browser.current_folder, self.folder)
+            self.assertEqual(self.browser.folder_history, [])
+            self.settings.sync()
+            restarted = FileBrowser(settings=QSettings(str(self.settings_path), QSettings.Format.IniFormat))
+            self.addCleanup(restarted.deleteLater)
+            self.assertEqual(restarted.current_folder, self.folder)
+        # A drive is a start of its own; a stand-in root keeps the test off the real ones.
+        modal.start_combo.addItem("Stand-in drive", str(self.folder / "Inner"))
+        modal.start_combo.setCurrentIndex(modal.start_combo.count() - 1)
+        self.browser.reset_location()
+        self.assertEqual(self.browser.current_folder, self.folder / "Inner")
 
     def test_the_debug_entry_is_gone_from_the_tray_menu(self):
         self.assertFalse(hasattr(WinTrayApp, "test_func_connection"))

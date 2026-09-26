@@ -255,12 +255,13 @@ class FileBrowser(QWidget):
         self.search_edit.textChanged.connect(self.search_timer.start)
         self.filter_combo.currentIndexChanged.connect(self.apply_filters)
         self.sort_combo.currentIndexChanged.connect(self.sort_changed)
+        start = self.start_folder()
         if settings is not None and self.settings_modal.reopen_last:
-            saved = settings.value("files/last_folder", "")
-            if saved:
-                # Not checked here: a stat on a dead share would stall the start. Opening it reports.
-                self.current_folder = Path(saved)
-                self.show_location(self.current_folder)
+            start = Path(settings.value("files/last_folder", "") or start)
+        if start != self.current_folder:
+            # Not checked here: a stat on a dead share would stall the start. Opening it reports.
+            self.current_folder = start
+            self.show_location(start)
 
 
 
@@ -333,8 +334,21 @@ class FileBrowser(QWidget):
         if self.watcher.directories():
             self.watcher.removePaths(self.watcher.directories())
 
+    def start_folder(self):
+        """Where the panel opens, as Settings says: the Desktop, a folder of the user's, or a drive."""
+
+        start = self.settings_modal.start_in
+        if start in ("desktop", "last"):
+            return self.desktop_folder
+        if Path(start).is_absolute():
+            return Path(start)
+        folders = {name.casefold(): path for name, path in locations.user_folders()}
+
+        return folders.get(start, self.desktop_folder)
+
     def reset_location(self):
-        """Reopen on the Desktop the way the shell's own chevron menus do, unless asked to stay put."""
+        """Reopen where the panel starts, the Desktop unless Settings says otherwise, the way the
+        shell's own chevron menus do; or stay put when asked to."""
         if self.settings_modal.reopen_last:
             return
         # History goes even when the panel was closed on the Desktop it walked back to.
@@ -347,14 +361,15 @@ class FileBrowser(QWidget):
         self._scan_pending = False
         self.slow_scan_timer.stop()
         self._navigations += 1
-        if self.current_folder == self.desktop_folder:
+        start = self.start_folder()
+        if self.current_folder == start:
             return
-        self.current_folder = self.desktop_folder
+        self.current_folder = start
         self.clear_search()
         self.entries = []
         self._loaded = False
         self._rendered_state = None
-        self.show_location(self.desktop_folder)
+        self.show_location(start)
 
     def show_location(self, folder):
         self.title_label.set_name("Desktop" if folder == self.desktop_folder else folder.name or str(folder))

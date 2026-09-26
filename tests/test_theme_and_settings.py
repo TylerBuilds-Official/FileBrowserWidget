@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import QApplication
 from src.ui import motion
 from src.ui.file_browser import FileBrowser
 from src.ui.settings.settings_modal import SettingsModal
+from src.utils.locations import Drive
 from src.utils.system_theme import SystemTheme, accent_colors, contrast
 
 
@@ -106,7 +107,7 @@ class ThemeAndSettingsTests(unittest.TestCase):
         modal.docking_combo.setCurrentIndex(modal.docking_combo.findData("top_left"))
         modal.extensions_check.setChecked(True)
         modal.hover_combo.setCurrentIndex(modal.hover_combo.findData("cascade"))
-        modal.reopen_check.setChecked(True)
+        modal.start_combo.setCurrentIndex(modal.start_combo.findData("last"))
         self.settings.sync()
         fresh_settings = QSettings(self.settings.fileName(), QSettings.Format.IniFormat)
         restored = SettingsModal(settings=fresh_settings)
@@ -117,6 +118,33 @@ class ThemeAndSettingsTests(unittest.TestCase):
         self.assertTrue(restored.reopen_last)
         modal.deleteLater()
         restored.deleteLater()
+
+    def test_start_in_offers_the_users_folders_the_drives_that_stay_and_where_i_left_off(self):
+        drives = [Drive(Path("C:\\"), "fixed"), Drive(Path("E:\\"), "removable"), Drive(Path("M:\\"), "network")]
+        with patch("src.utils.locations.list_drives", return_value=drives):
+            modal = SettingsModal(settings=self.settings)
+        self.addCleanup(modal.deleteLater)
+        combo = modal.start_combo
+        self.assertEqual([combo.itemData(i) for i in range(combo.count())],
+                         ["desktop", "downloads", "documents", "C:\\", "M:\\", "last"])
+        self.assertEqual(combo.itemText(3), "C: drive")
+        self.assertEqual(modal.start_in, "desktop")  # Nothing changes unless someone chooses.
+
+    def test_reopen_where_i_left_off_carries_over_as_where_the_panel_starts(self):
+        self.settings.setValue("files/reopen_last", True)
+        modal = SettingsModal(settings=self.settings)
+        self.addCleanup(modal.deleteLater)
+        self.assertEqual(modal.start_in, "last")
+        self.assertTrue(modal.reopen_last)
+
+    def test_a_start_drive_that_is_away_today_stays_the_choice(self):
+        self.settings.setValue("files/start_in", "Q:\\")
+        with patch("src.utils.locations.list_drives", return_value=[]):
+            modal = SettingsModal(settings=self.settings)
+        self.addCleanup(modal.deleteLater)
+        self.assertEqual(modal.start_in, "Q:\\")
+        self.assertEqual(modal.start_combo.currentText(), "Q: drive")
+        self.assertEqual(modal.start_combo.itemData(modal.start_combo.count() - 1), "last")
 
     def test_slide_over_covers_browser_resizes_and_returns_focus(self):
         browser = FileBrowser()

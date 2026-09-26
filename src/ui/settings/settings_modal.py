@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from PyQt6.QtCore import Qt, QEvent, QPoint, QPropertyAnimation, QSize, pyqtSignal
 from PyQt6.QtWidgets import (QLabel, QHBoxLayout, QCheckBox,
                              QComboBox, QVBoxLayout, QWidget, QScrollArea, QKeySequenceEdit, QPushButton)
@@ -7,6 +9,7 @@ from PyQt6.QtGui import QIcon, QKeySequence
 from src.ui import motion
 from src.ui.custom_widgets.fluent_icon_button import FluentIconButton
 from src.ui.smooth_scroll import SmoothScroll, SmoothComboBox
+from src.utils import locations
 from src.utils.assets import asset
 from src.version import VERSION
 
@@ -101,13 +104,18 @@ class SettingsModal(QWidget):
             self.hover_combo.addItem(label, value)
         self._restore_combo(self.hover_combo, "files/hover_behavior", "none")
         self._card(settings_layout, "Folder hover", "What resting on a folder does.", self.hover_combo)
-        self.reopen_check = QCheckBox()
-        self.reopen_check.setObjectName("settingsReopenCheck")
-        self.reopen_check.setAccessibleName("Reopen where I left off")
-        if settings is not None:
-            self.reopen_check.setChecked(settings.value("files/reopen_last", False, type=bool))
-        self._card(settings_layout, "Reopen where I left off", "Come back to the last folder instead of the Desktop.",
-                   self.reopen_check)
+        self.start_combo = SmoothComboBox()
+        self.start_combo.setObjectName("settingsStartCombo")
+        self.start_combo.setAccessibleName("Start in")
+        for label, value in (("Desktop", "desktop"), ("Downloads", "downloads"), ("Documents", "documents")):
+            self.start_combo.addItem(label, value)
+        # Drives that stay put; a USB stick chosen here would usually not be there to open on.
+        for drive in locations.list_drives():
+            if drive.kind in ("fixed", "network"):
+                self.start_combo.addItem(f"{drive.letter} drive", str(drive.root))
+        self.start_combo.addItem("Where I left off", "last")
+        self._restore_start()
+        self._card(settings_layout, "Start in", "The folder the panel opens on.", self.start_combo)
         self._section(settings_layout, "Startup and shortcuts")
         self.startup_check = QCheckBox()
         self.startup_check.setAccessibleName("Start with Windows")
@@ -166,7 +174,7 @@ class SettingsModal(QWidget):
         self.docking_combo.currentIndexChanged.connect(self.emit_docking_position_changed)
         self.extensions_check.stateChanged.connect(self.emit_refresh)
         self.hover_combo.currentIndexChanged.connect(self._hover_changed)
-        self.reopen_check.toggled.connect(lambda checked: self._save("files/reopen_last", checked))
+        self.start_combo.currentIndexChanged.connect(lambda: self._save("files/start_in", self.start_in))
         self.startup_check.toggled.connect(self.startup_changed.emit)
         self.hotkey_edit.editingFinished.connect(self._hotkey_edited)
         self.hotkey_reset.clicked.connect(lambda: self.hotkey_changed.emit("Alt+B"))
@@ -218,6 +226,18 @@ class SettingsModal(QWidget):
         value = self.settings.value(key, default) if self.settings is not None else default
         index = combo.findData(value)
         combo.setCurrentIndex(index if index >= 0 else combo.findData(default))
+
+    def _restore_start(self):
+        """The saved start, where "Reopen where I left off" was once a checkbox of its own."""
+
+        if self.settings is None:
+            return
+        reopened = self.settings.value("files/reopen_last", False, type=bool)
+        saved = self.settings.value("files/start_in", "last" if reopened else "desktop")
+        if self.start_combo.findData(saved) < 0 and Path(saved).is_absolute():
+            # A drive that is not here today, a share away or a disk unplugged, is still the choice.
+            self.start_combo.insertItem(self.start_combo.count() - 1, f"{Path(saved).drive} drive", saved)
+        self._restore_combo(self.start_combo, "files/start_in", saved)
 
     def _save(self, key, value):
         if self.settings is not None:
@@ -321,5 +341,10 @@ class SettingsModal(QWidget):
         return self.hover_combo.currentData()
 
     @property
+    def start_in(self) -> str:
+        """"desktop", "downloads", "documents", "last", or a drive's root."""
+        return self.start_combo.currentData()
+
+    @property
     def reopen_last(self) -> bool:
-        return self.reopen_check.isChecked()
+        return self.start_in == "last"
