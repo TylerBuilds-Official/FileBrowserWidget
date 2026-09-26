@@ -1,0 +1,131 @@
+"""The places the panel can jump to: the user's own folders, and the drives under This PC.
+
+Listing them never touches a drive. Drive letters and their kinds come from the local drive
+table, so a network drive whose server is asleep still lists at once. The parts that do ask a
+drive, its label and its share, are read on a worker by read_names and filled in as they land.
+"""
+import ctypes
+import os
+from dataclasses import dataclass
+from pathlib import Path
+
+from src.utils.desktop_paths import known_folder
+
+# The user's folders besides the Desktop, in the order Windows 11 pins them.
+USER_FOLDERS = (
+    ("Downloads", "374DE290-123F-4565-9164-39C4925E467B"),
+    ("Documents", "FDD39AD0-238F-46AF-ADB4-6C85480369C7"),
+    ("Pictures", "33E28130-4E1E-4676-835A-98395C3BC3BB"),
+    ("Music", "4BD8D571-6D19-48D3-BE97-422220080E43"),
+    ("Videos", "18989B1D-99B5-455B-841C-AB7C74E4DDFC"),
+)
+
+DRIVE_KINDS = {2: "removable", 3: "fixed", 4: "network", 5: "optical", 6: "ram"}
+# What Explorer calls a drive with no label of its own.
+DEFAULT_NAMES = {"removable": "USB Drive", "fixed": "Local Disk", "network": "Network Drive",
+                 "optical": "DVD Drive", "ram": "RAM Disk"}
+
+SEM_FAILCRITICALERRORS = 0x0001
+ERROR_CONNECTION_UNAVAIL = 1201
+
+
+@dataclass
+class Drive:
+    root: Path
+    kind: str
+    label: str = ""
+    remote: str = ""  # \server\share, for a mapped network drive
+    connected: bool = True
+
+    @property
+    def letter(self) -> str:
+        return str(self.root)[:2]
+
+    @property
+    def name(self) -> str:
+        """As Explorer names it: 'Boot (C:)', or 'Media (\\NAS) (M:)' for a mapped share."""
+
+        if self.remote:
+            parent, _, share = self.remote.rstrip("\\").rpartition("\\")
+            return f"{share} ({parent}) ({self.letter})"
+
+        return f"{self.label or DEFAULT_NAMES[self.kind]} ({self.letter})"
+
+
+def user_folders() -> list[tuple[str, Path]]:
+    """Each user folder wherever it has been moved to; one Windows cannot resolve is left out."""
+
+    folders = []
+    for name, folder_id in USER_FOLDERS:
+        path = known_folder(folder_id)
+        if path is not None:
+            folders.append((name, path))
+
+    return folders
+
+
+def list_drives() -> list[Drive]:
+    """Every drive letter and its kind. Both come from the local drive table: no drive is asked."""
+
+    if os.name != "nt":
+        return []
+    from ctypes import wintypes
+
+    get_type = ctypes.windll.kernel32.GetDriveTypeW
+    get_type.argtypes = [wintypes.LPCWSTR]
+    get_type.restype = wintypes.UINT
+    drives = []
+    for root in os.listdrives():
+        kind = DRIVE_KINDS.get(get_type(root))
+        if kind is not None:
+            drives.append(Drive(Path(root), kind))
+
+    return drives
+
+
+def quiet_drive_errors():
+    """Have this thread's reads of an empty drive fail, rather than raise an "insert a disk" dialog.
+
+    An empty card reader or disc drive otherwise answers with that dialog, and holds the read until
+    someone dismisses it. The mode belongs to the thread, and every worker is a new thread, so
+    each worker that may touch a drive sets it for itself.
+    """
+
+    if os.name == "nt":
+        ctypes.WinDLL("kernel32").SetThreadErrorMode(SEM_FAILCRITICALERRORS, None)
+
+
+def read_names(drives: list[Drive]) -> dict[Path, tuple[str, str, bool]]:
+    """Each drive's label, its share if mapped, and whether that share is connected.
+
+    Run it on a worker: a sleeping server can hold these calls for the whole SMB timeout. A
+    network drive is named by its share, as Explorer names it, so its label is never asked for.
+    """
+
+    if os.name != "nt":
+        return {}
+    from ctypes import wintypes
+
+    quiet_drive_errors()
+    volume = ctypes.WinDLL("kernel32").GetVolumeInformationW
+    volume.argtypes = [wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.DWORD, wintypes.LPDWORD,
+                       wintypes.LPDWORD, wintypes.LPDWORD, wintypes.LPWSTR, wintypes.DWORD]
+    volume.restype = wintypes.BOOL
+    connection = ctypes.WinDLL("mpr").WNetGetConnectionW
+    connection.argtypes = [wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.LPDWORD]
+    connection.restype = wintypes.DWORD
+    names = {}
+    for drive in drives:
+        if drive.kind == "network":
+            remote = ctypes.create_unicode_buffer(1024)
+            size = wintypes.DWORD(len(remote))
+            status = connection(drive.letter, remote, ctypes.byref(size))
+            if status in (0, ERROR_CONNECTION_UNAVAIL):
+                # A remembered mapping still names its share while its server is away.
+                names[drive.root] = ("", remote.value, status == 0)
+            continue
+        label = ctypes.create_unicode_buffer(261)
+        if volume(str(drive.root), label, len(label), None, None, None, None, 0):
+            names[drive.root] = (label.value, "", True)
+
+    return names

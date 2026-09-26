@@ -55,6 +55,42 @@ class FileIcons:
         except (OSError, UnicodeError, ValueError, configparser.Error):
             return QIcon()
 
+    # Windows' own pictures for kinds of drive (SHSTOCKICONID), which never touch a drive.
+    STOCK_DRIVES = {"removable": 7, "fixed": 8, "network": 9, "disconnected": 10,
+                    "optical": 11, "ram": 12}
+
+    @staticmethod
+    def stock_icon(stock_id: int) -> QIcon:
+        """One of the pictures Windows keeps for kinds of thing, such as a network drive."""
+        if os.name != "nt":
+            return QIcon()
+        from ctypes import wintypes
+
+        class StockIconInfo(ctypes.Structure):
+            _fields_ = [("cbSize", wintypes.DWORD), ("hIcon", wintypes.HICON),
+                        ("iSysImageIndex", ctypes.c_int), ("iIcon", ctypes.c_int),
+                        ("szPath", wintypes.WCHAR * 260)]
+
+        # Its own handle: argtypes name this call's structure, which a shared handle would pass on.
+        get_icon = ctypes.WinDLL("shell32").SHGetStockIconInfo
+        get_icon.argtypes = [ctypes.c_int, wintypes.UINT, ctypes.POINTER(StockIconInfo)]
+        get_icon.restype = ctypes.c_long
+        destroy = ctypes.windll.user32.DestroyIcon
+        destroy.argtypes = [wintypes.HICON]
+        destroy.restype = wintypes.BOOL
+        icon = QIcon()
+        for size in (0x0, 0x1):  # SHGSI_LARGEICON, then SHGSI_SMALLICON, so both sizes stay crisp.
+            info = StockIconInfo()
+            info.cbSize = ctypes.sizeof(info)
+            if get_icon(stock_id, 0x100 | size, ctypes.byref(info)) == 0 and info.hIcon:
+                try:
+                    image = QImage.fromHICON(info.hIcon)
+                    if not image.isNull():
+                        icon.addPixmap(QPixmap.fromImage(image))
+                finally:
+                    destroy(info.hIcon)
+        return icon
+
     @staticmethod
     def resource_icon(file: Path, index: int) -> QIcon:
         """Extract an embedded Windows icon without loading/running the program."""

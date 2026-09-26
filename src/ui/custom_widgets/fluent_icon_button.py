@@ -18,6 +18,7 @@ class FluentIconButton(QPushButton):
         "filter": "",
         "star": "",
         "star-filled": "",
+        "this-pc": "",
     }
 
     def __init__(self, glyph, label, parent=None):

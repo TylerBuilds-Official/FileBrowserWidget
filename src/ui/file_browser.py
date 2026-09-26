@@ -1,13 +1,13 @@
 import sys
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from time import monotonic
 
 from PyQt6 import sip
 from PyQt6.QtWidgets import QWidget, QScrollArea, QHBoxLayout, QMenu, QPushButton, QApplication
 from PyQt6.QtCore import Qt, QEvent, QMimeData, QPoint, QRect, QSize, QUrl, pyqtSignal, QFileSystemWatcher, QTimer
-from PyQt6.QtGui import QPixmap
+from PyQt6.QtGui import QIcon, QPixmap
 from PyQt6.QtWidgets import QVBoxLayout, QLabel
 
 
@@ -30,7 +30,7 @@ from src.utils.icon_reader import IconReader
 from src.utils.thread_executor import ThreadExecutor
 from src.utils.file_listing import (FileEntry, describe_file, extension_kinds, file_stamp,
                                     filter_options, visible_entries)
-from src.utils import shell_actions, window_effects
+from src.utils import locations, shell_actions, window_effects
 
 
 @dataclass
@@ -101,6 +101,11 @@ class FileBrowser(QWidget):
         self._generic_icons = {}
         self._icon_queue = deque()
         self._icon_reading = False
+
+        # What the locations menu has learned, so it opens on real names and icons the next time.
+        self._drive_names = {}
+        self._drive_icons = {}
+        self._location_icons = {}
 
         # Folders are read on a worker; the newest request owns the panel and older ones are dropped.
         self._scan_generation = 0
@@ -182,6 +187,9 @@ class FileBrowser(QWidget):
         self.path_label.setProperty("role", "secondary")
         self.path_label.setToolTip(str(self.current_folder))
         navigation.addWidget(self.path_label, 1)
+        self.locations_button = FluentIconButton("this-pc", "Folders and drives")
+        self.locations_button.clicked.connect(self.show_locations_menu)
+        navigation.addWidget(self.locations_button)
         self.filter_button = QPushButton("Filter")
         self.filter_button.setObjectName("filterButton")
         self.filter_button.setFixedWidth(72)
@@ -394,6 +402,7 @@ class FileBrowser(QWidget):
         result = {}
 
         def scan():
+            locations.quiet_drive_errors()
             result.update(self.scan_folder(folder, cache, force))
 
         executor = ThreadExecutor(scan, retries=0)
@@ -823,6 +832,91 @@ class FileBrowser(QWidget):
             self.status_label.setToolTip(str(path))
             return
         self.open_item(path)
+
+    def show_locations_menu(self):
+        """The user's folders and every drive, as Explorer's navigation pane lists them.
+
+        The menu opens at once on what is already known. Drive names and folder icons are read on
+        workers and painted in as they land, since a sleeping server can hold either for seconds.
+        """
+
+        menu = QMenu(self)
+        ratio = self.devicePixelRatioF()
+        folder_actions, drive_actions = {}, {}
+        unread = []
+        for name, path in [("Desktop", self.desktop_folder), *locations.user_folders()]:
+            icon = self._location_icons.get((path, ratio))
+            if icon is None:
+                icon = QIcon(self.generic_pixmap(True))
+                unread.append(FileEntry(path, {"folders"}))
+            folder_actions[path] = self.add_location(menu, name, path, icon)
+        drives = locations.list_drives()
+        for network in (False, True):
+            group = [drive for drive in drives if (drive.kind == "network") == network]
+            if group:
+                menu.addSeparator()
+            for drive in group:
+                named = self.named_drive(drive)
+                drive_actions[drive.root] = self.add_location(menu, named.name, drive.root, self.drive_icon(named))
+        anchor = self.locations_button.mapToGlobal(self.locations_button.rect().bottomRight())
+
+        def names_landed(names):
+            if sip.isdeleted(self):
+                return
+            self._drive_names.update(names)
+            if not drive_actions or sip.isdeleted(menu):
+                return  # Closed already: the names wait for the next time it opens.
+            for drive in drives:
+                named = self.named_drive(drive)
+                drive_actions[drive.root].setText(named.name.replace("&", "&&"))
+                drive_actions[drive.root].setIcon(self.drive_icon(named))
+            # A longer name widens the menu from its left edge; keep it hanging from the button.
+            menu.move(anchor.x() + 1 - menu.width(), menu.y())
+
+        def icons_landed(images):
+            if sip.isdeleted(self):
+                return
+            for entry, image in images:
+                if image.isNull():
+                    continue
+                icon = self._location_icons[(entry.path, ratio)] = QIcon(QPixmap.fromImage(image))
+                if entry.path in folder_actions and not sip.isdeleted(menu):
+                    folder_actions[entry.path].setIcon(icon)
+
+        names = {}
+        executor = ThreadExecutor(lambda: names.update(locations.read_names(drives)), retries=0)
+        executor.success.connect(lambda *_: names_landed(names))
+        executor.errors.connect(lambda *_: names_landed(names))
+        executor.run_task()
+        if unread:
+            self.icon_reader.read(unread, ratio, icons_landed)
+        window_effects.style_window(menu)
+        # Right-aligned under its button, as the filter popup beside it drops.
+        menu.exec(QPoint(anchor.x() + 1 - menu.sizeHint().width(), anchor.y()))
+        folder_actions.clear()  # Whatever lands from here on has no menu to paint.
+        drive_actions.clear()
+        menu.deleteLater()
+
+    def add_location(self, menu, name, path, icon):
+        action = menu.addAction(icon, name.replace("&", "&&"))  # A lone ampersand would become a mnemonic.
+        action.triggered.connect(lambda checked=False, path=path: self.navigate_to(path))
+        return action
+
+    def named_drive(self, drive):
+        """The drive with its label and share as last read; known only by its kind until then."""
+
+        label, remote, connected = self._drive_names.get(drive.root, (drive.label, drive.remote, drive.connected))
+
+        return replace(drive, label=label, remote=remote, connected=connected)
+
+    def drive_icon(self, drive):
+        """Windows' own picture for the kind of drive, which never asks the drive itself."""
+
+        kind = drive.kind if drive.connected else "disconnected"
+        if kind not in self._drive_icons:
+            self._drive_icons[kind] = FileIcons.stock_icon(FileIcons.STOCK_DRIVES[kind])
+
+        return self._drive_icons[kind]
 
     def go_up(self):
         self.navigate_to(self.current_folder.parent)
