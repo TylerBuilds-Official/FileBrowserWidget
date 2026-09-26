@@ -43,6 +43,15 @@ class DriveTests(unittest.TestCase):
         label, remote, connected = locations.read_names([drives[system]])[system]
         self.assertEqual((remote, connected), ("", True))
 
+    def test_a_share_is_on_another_machine_and_the_system_drive_is_not(self):
+        self.assertTrue(locations.is_remote(r"\\nas\Media\Photos"))
+        self.assertFalse(locations.is_remote(os.environ["SystemDrive"] + "\\Windows"))
+
+    def test_a_mapped_letter_is_on_another_machine_and_only_its_bare_root_is_asked(self):
+        with patch("src.utils.locations.drive_kind", return_value="network") as kind:
+            self.assertTrue(locations.is_remote(Path("M:\\Films\\2026")))
+        kind.assert_called_once_with("M:\\")
+
     def test_quieting_drive_errors_holds_for_the_thread_that_asks(self):
         kernel = ctypes.WinDLL("kernel32")
         modes = []

@@ -296,6 +296,8 @@ class FileBrowser(QWidget):
 
     def sources_changed(self):
         for folder in self.scan_sources(self.current_folder):
+            if locations.is_remote(folder):
+                return True  # Read it again on a worker, rather than ask the share here.
             try:
                 if self.folder_stamps.get(folder) != file_stamp(folder.stat()):
                     return True
@@ -304,8 +306,10 @@ class FileBrowser(QWidget):
         return False
 
     def watch_folder(self):
-        # Watching parents also catches a removed directory being recreated.
-        wanted = {str(path) for source in self.scan_sources(self.current_folder)
+        # Watching parents also catches a removed directory being recreated. A folder on another
+        # machine is polled instead: adding a watch asks the folder about itself on this thread,
+        # and a sleeping server would hold the panel until it answered.
+        wanted = {str(path) for source in self.scan_sources(self.current_folder) if not locations.is_remote(source)
                   for path in (source, source.parent)}
         current = set(self.watcher.directories())
         if current - wanted:
@@ -354,10 +358,14 @@ class FileBrowser(QWidget):
         self.search_edit.blockSignals(False)
 
     def show_scanning(self):
-        """Fill the panel after it is on screen; a cold folder takes a moment to read."""
-        self.status_label.setText("Loading…")
-        self.status_label.setToolTip("")
+        """Fill the panel after it is on screen; a cold folder takes a moment to read.
+
+        A folder already listed stays up while it is read again, and says it is loading only if
+        the read takes a while, through the slow-read timer; a quick one never flashes.
+        """
         if not self.entries:
+            self.status_label.setText("Loading…")
+            self.status_label.setToolTip("")
             self.show_message("Loading…")
 
     def show_message(self, text, detail="", retry=False):

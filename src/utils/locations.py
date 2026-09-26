@@ -64,23 +64,43 @@ def user_folders() -> list[tuple[str, Path]]:
     return folders
 
 
-def list_drives() -> list[Drive]:
-    """Every drive letter and its kind. Both come from the local drive table: no drive is asked."""
+def drive_kind(root: str) -> str | None:
+    """The kind of drive a root such as 'C:\\' is, from the local drive table: the drive is not asked.
 
-    if os.name != "nt":
-        return []
+    Only ever pass a bare root. Given any deeper path, Windows opens it to find its volume.
+    """
+
     from ctypes import wintypes
 
     get_type = ctypes.windll.kernel32.GetDriveTypeW
     get_type.argtypes = [wintypes.LPCWSTR]
     get_type.restype = wintypes.UINT
+
+    return DRIVE_KINDS.get(get_type(root))
+
+
+def list_drives() -> list[Drive]:
+    """Every drive letter and its kind. Both come from the local drive table: no drive is asked."""
+
+    if os.name != "nt":
+        return []
     drives = []
     for root in os.listdrives():
-        kind = DRIVE_KINDS.get(get_type(root))
+        kind = drive_kind(root)
         if kind is not None:
             drives.append(Drive(Path(root), kind))
 
     return drives
+
+
+def is_remote(path) -> bool:
+    """Whether a path lives on another machine, told from its spelling and the drive table alone."""
+
+    drive = Path(path).drive
+    if drive.startswith("\\\\"):
+        return True  # \\server\share
+
+    return os.name == "nt" and len(drive) == 2 and drive_kind(drive + "\\") == "network"
 
 
 def quiet_drive_errors():

@@ -238,6 +238,44 @@ class BrowserCacheTests(unittest.TestCase):
         self.assertEqual(self.browser.forward_history, [])
         self.assertFalse(self.browser.back_button.isEnabled())
 
+    def test_a_folder_on_another_machine_is_polled_not_watched(self):
+        asked = []
+        real = Path.stat
+        ui_thread = threading.current_thread()
+
+        def spy(path, *args, **kwargs):
+            if threading.current_thread() is ui_thread:
+                asked.append(path)
+            return real(path, *args, **kwargs)
+
+        with patch("src.utils.locations.is_remote", return_value=True):
+            self.browser.show()
+            self.app.processEvents()
+            # Adding a watch asks the folder about itself, on this thread.
+            self.assertEqual(self.browser.watcher.directories(), [])
+            self.browser.hide()
+            with patch.object(Path, "stat", spy):
+                self.assertTrue(self.browser.needs_scan())  # So a reopen reads it again, on a worker.
+        self.assertEqual(asked, [])
+
+    def test_reopening_a_listed_folder_keeps_it_up_while_it_is_read_again(self):
+        self.browser.desktop_folder = self.root
+        self.browser.show()
+        self.app.processEvents()
+        self.browser.hide()
+        app = SimpleNamespace(file_browser=self.browser, reposition_popup=lambda: None)
+        reads = []
+        real = FileBrowser.traverse_level
+        with patch("src.utils.locations.is_remote", return_value=True), \
+                patch.object(self.browser, "traverse_level", lambda folder: reads.append(folder) or real(folder)):
+            WinTrayApp.show_browser(app)
+            self.assertEqual(self.browser.status_label.text(), "20 items")  # No flash of "Loading…".
+            self.assertEqual(self.browser.file_list_layout.count(), 20)
+            QTest.qWait(20)
+            settle(self.browser)
+        self.assertEqual(reads, [self.root])
+        self.assertEqual(self.browser.status_label.text(), "20 items")
+
     def test_watcher_refreshes_visible_folder_and_hidden_changes_wait(self):
         self.browser.show()
         self.app.processEvents()
