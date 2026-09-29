@@ -134,6 +134,43 @@ def quiet_drive_errors():
         ctypes.WinDLL("kernel32").SetThreadErrorMode(SEM_FAILCRITICALERRORS, None)
 
 
+def read_space(root: Path) -> tuple[int, int] | None:
+    """How much of a drive is free, and how big it is, in bytes; None if the drive will not say.
+
+    Run it on a worker: a sleeping server holds this for the whole SMB timeout.
+    """
+
+    if os.name != "nt":
+        return None
+    from ctypes import wintypes
+
+    quiet_drive_errors()
+    space = ctypes.WinDLL("kernel32").GetDiskFreeSpaceExW
+    space.argtypes = [wintypes.LPCWSTR, ctypes.POINTER(ctypes.c_ulonglong),
+                      ctypes.POINTER(ctypes.c_ulonglong), ctypes.POINTER(ctypes.c_ulonglong)]
+    space.restype = wintypes.BOOL
+    free, total = ctypes.c_ulonglong(), ctypes.c_ulonglong()
+    if not space(str(root), ctypes.byref(free), ctypes.byref(total), None):
+        return None
+
+    return free.value, total.value
+
+
+def size_text(size: int) -> str:
+    """A size as Explorer shows one: '412 GB', '1.82 TB', '96.3 MB'."""
+
+    for unit in ("bytes", "KB", "MB", "GB", "TB", "PB"):
+        if size < 1000 or unit == "PB":
+            break
+        size /= 1024
+    if unit == "bytes":
+        return f"{size:.0f} {unit}"
+    # Three figures, as Explorer shows them: 1.82 TB, 96.3 MB, 412 GB.
+    digits = 2 if size < 10 else 1 if size < 100 else 0
+
+    return f"{size:.{digits}f} {unit}"
+
+
 def read_names(drives: list[Drive]) -> dict[Path, tuple[str, str, bool]]:
     """Each drive's label, its share if mapped, and whether that share is connected.
 

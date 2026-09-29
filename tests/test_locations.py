@@ -240,6 +240,74 @@ class LocationsMenuTests(unittest.TestCase):
             drain_workers()
         self.assertEqual(self.browser.title_label._name, "Desktop")
 
+    def test_sizes_read_as_explorer_shows_them(self):
+        self.assertEqual(locations.size_text(0), "0 bytes")
+        self.assertEqual(locations.size_text(999), "999 bytes")
+        self.assertEqual(locations.size_text(1024), "1.00 KB")
+        self.assertEqual(locations.size_text(96_300_000), "91.8 MB")
+        self.assertEqual(locations.size_text(412 * 1024 ** 3), "412 GB")
+        self.assertEqual(locations.size_text(int(1.82 * 1024 ** 4)), "1.82 TB")
+
+    def test_the_status_at_a_drive_root_says_how_full_it_is_once_the_drive_answers(self):
+        root = Path("Q:\\")
+        release = threading.Event()
+
+        def slow_space(path):
+            release.wait(5)
+            return 412 * 1024 ** 3, 931 * 1024 ** 3
+
+        with patch("src.utils.locations.drive_kind", return_value="fixed"), \
+                patch("src.utils.locations.read_names", return_value={}), \
+                patch("src.utils.locations.read_space", slow_space), \
+                patch.object(self.browser, "traverse_level", return_value=[self.disk / "inside.txt"]):
+            self.browser.navigate_to(root)
+            settle(self.browser)
+            self.assertEqual(self.browser.status_label.text(), "1 item")  # Listed before the drive answers.
+            release.set()
+            drain_workers()
+            self.assertEqual(self.browser.status_label.text(), "1 item | 412 GB free of 931 GB")
+            # Below the root it is a folder, not the drive; the space goes with the root.
+            self.browser.navigate_to(self.disk)
+            settle(self.browser)
+            self.assertEqual(self.browser.status_label.text(), "1 item")
+
+    def test_the_drive_is_asked_its_space_off_the_ui_thread(self):
+        threads = []
+
+        def record(path):
+            threads.append(threading.current_thread())
+            return 1, 2
+
+        with patch("src.utils.locations.drive_kind", return_value="fixed"), \
+                patch("src.utils.locations.read_names", return_value={}), \
+                patch("src.utils.locations.read_space", side_effect=record), \
+                patch.object(self.browser, "traverse_level", return_value=[]):
+            self.browser.navigate_to(Path("Q:\\"))
+            settle(self.browser)
+            drain_workers()
+        self.assertEqual(len(threads), 1)
+        self.assertIsNot(threads[0], threading.current_thread())
+
+    def test_a_drive_that_answers_after_the_panel_moved_on_changes_nothing(self):
+        root = Path("Q:\\")
+        release = threading.Event()
+
+        def slow_space(path):
+            release.wait(5)
+            return 1, 2
+
+        with patch("src.utils.locations.drive_kind", return_value="fixed"), \
+                patch("src.utils.locations.read_names", return_value={}), \
+                patch("src.utils.locations.read_space", slow_space), \
+                patch.object(self.browser, "traverse_level", return_value=[]):
+            self.browser.navigate_to(root)
+            settle(self.browser)
+        self.browser.navigate_to(self.disk)
+        settle(self.browser)
+        release.set()
+        drain_workers()
+        self.assertEqual(self.browser.status_label.text(), "1 item")
+
     def test_a_share_is_titled_by_its_own_name(self):
         self.browser.show_location(Path("\\\\nas\\Media\\"))
         self.assertEqual(self.browser.title_label._name, "Media")

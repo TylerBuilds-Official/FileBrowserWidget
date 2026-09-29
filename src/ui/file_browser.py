@@ -108,6 +108,7 @@ class FileBrowser(QWidget):
         self._drive_names = {}
         self._drive_icons = {}
         self._location_icons = {}
+        self._drive_space = None  # (free, total) of the drive whose root is shown, once read.
 
         # Folders are read on a worker; the newest request owns the panel and older ones are dropped.
         self._scan_generation = 0
@@ -390,6 +391,28 @@ class FileBrowser(QWidget):
 
                 self.read_drive_names([locations.Drive(folder, kind)], named)
 
+    def read_drive_space(self, folder):
+        """At a drive's root, ask the drive how full it is on a worker, and say so in the status.
+
+        Asked again on every read of the root, since deleting or copying changes the answer. The
+        status shows the space only while that root is up; a folder below it is not the drive.
+        """
+
+        self._drive_space = None
+        if folder.name or not folder.drive:
+            return
+        result = {}
+
+        def landed(*_):
+            if sip.isdeleted(self) or self.current_folder != folder or result["space"] is None:
+                return  # Moved on, or a drive that would not say.
+            self._drive_space = result["space"]
+            self.render_entries(None)
+
+        executor = ThreadExecutor(lambda: result.update(space=locations.read_space(folder)), retries=0)
+        executor.success.connect(landed)
+        executor.run_task()
+
     def place_name(self, folder):
         """What the title calls a folder: the Desktop, a drive as Explorer names it, a share by its name."""
 
@@ -581,6 +604,7 @@ class FileBrowser(QWidget):
         self.current_folder = folder
         self.show_location(folder)
         self.watch_folder()
+        self.read_drive_space(folder)
         if not rescan and self.preferences is not None and self.settings_modal.reopen_last:
             self.preferences.setValue("files/last_folder", str(folder))
         if force:
@@ -636,6 +660,9 @@ class FileBrowser(QWidget):
             text = f"{count} of {len(self.entries)} items"
         if self._scan_errors:
             text += f" | {len(self._scan_errors)} unavailable (details)"
+        if self._drive_space is not None:
+            free, total = self._drive_space
+            text += f" | {locations.size_text(free)} free of {locations.size_text(total)}"
         self.status_label.setText(text)
         self.status_label.setToolTip("\n".join(self._scan_errors))
 
