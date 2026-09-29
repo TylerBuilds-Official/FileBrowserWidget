@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import QApplication, QSystemTrayIcon
 from src.ui.file_browser import FileBrowser
 from src.ui.win_tray_app import WinTrayApp
 from src.utils import shell_actions
+from src.utils.locations import Drive
 from support import settle
 
 
@@ -254,6 +255,31 @@ class NativePolishTests(unittest.TestCase):
         modal.start_combo.setCurrentIndex(modal.start_combo.count() - 1)
         self.browser.reset_location()
         self.assertEqual(self.browser.current_folder, self.folder / "Inner")
+
+    def test_a_start_drive_that_is_gone_falls_back_to_the_desktop(self):
+        modal = self.browser.settings_modal
+        gone = "Q:\\Work"
+        modal.start_combo.addItem("Q: drive", gone)
+        modal.start_combo.setCurrentIndex(modal.start_combo.count() - 1)
+        # Q: is not in the drive table, so this is told without asking any drive anything.
+        with patch("src.utils.locations.list_drives", return_value=[]):
+            self.assertEqual(self.browser.start_folder(), self.root)
+            self.browser.navigate_to(self.folder)
+            settle(self.browser)
+            self.browser.reset_location()
+            self.assertEqual(self.browser.current_folder, self.root)
+        # A drive still in the table is left alone, even a mapped one whose server may be asleep.
+        with patch("src.utils.locations.list_drives", return_value=[Drive(Path("Q:\\"), "network")]):
+            self.assertEqual(self.browser.start_folder(), Path(gone))
+
+    def test_reopen_on_a_drive_that_is_gone_falls_back_to_the_desktop(self):
+        self.settings.setValue("files/start_in", "last")
+        self.settings.setValue("files/last_folder", "Q:\\Notes")
+        with patch("src.utils.locations.list_drives", return_value=[]):
+            restarted = FileBrowser(settings=QSettings(str(self.settings_path), QSettings.Format.IniFormat))
+        self.addCleanup(restarted.deleteLater)
+        # It fell back at construction: the real Desktop, not the missing drive.
+        self.assertEqual(restarted.current_folder, restarted.desktop_paths.primary)
 
     def test_the_debug_entry_is_gone_from_the_tray_menu(self):
         self.assertFalse(hasattr(WinTrayApp, "test_func_connection"))

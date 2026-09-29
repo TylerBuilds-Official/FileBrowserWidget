@@ -262,7 +262,9 @@ class FileBrowser(QWidget):
         self.sort_combo.currentIndexChanged.connect(self.sort_changed)
         start = self.start_folder()
         if settings is not None and self.settings_modal.reopen_last:
-            start = Path(settings.value("files/last_folder", "") or start)
+            saved = settings.value("files/last_folder", "")
+            if saved:
+                start = self.reachable_start(Path(saved))
         if start != self.current_folder:
             # Not checked here: a stat on a dead share would stall the start. Opening it reports.
             self.current_folder = start
@@ -346,10 +348,23 @@ class FileBrowser(QWidget):
         if start in ("desktop", "last"):
             return self.desktop_folder
         if Path(start).is_absolute():
-            return Path(start)
+            return self.reachable_start(Path(start))
         folders = {name.casefold(): path for name, path in locations.user_folders()}
 
-        return folders.get(start, self.desktop_folder)
+        return self.reachable_start(folders.get(start, self.desktop_folder))
+
+    def reachable_start(self, folder):
+        """A start on a drive that has gone falls back to the Desktop, told from the drive table alone.
+
+        A share, or a mapped drive whose server is asleep, is left to open and report for itself: only
+        a drive letter no longer in the table, an unplugged disk or an unmapped drive, is caught here.
+        """
+
+        drive = folder.drive
+        if len(drive) == 2 and Path(drive + "\\") not in {d.root for d in locations.list_drives()}:
+            return self.desktop_folder
+
+        return folder
 
     def reset_location(self):
         """Reopen where the panel starts, the Desktop unless Settings says otherwise, the way the
