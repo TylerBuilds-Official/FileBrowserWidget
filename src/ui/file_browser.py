@@ -115,6 +115,10 @@ class FileBrowser(QWidget):
         self._changes = 0
         # Moves the user makes, so a look-up that answers after one of them is dropped.
         self._navigations = 0
+        # A look-up or a delete that takes a moment says so; a quick one never flashes.
+        self.slow_action_timer = QTimer(self)
+        self.slow_action_timer.setSingleShot(True)
+        self.slow_action_timer.setInterval(150)
         self.slow_scan_timer = QTimer(self)
         self.slow_scan_timer.setSingleShot(True)
         self.slow_scan_timer.setInterval(150)
@@ -838,6 +842,7 @@ class FileBrowser(QWidget):
         def answered(errors):
             if sip.isdeleted(self) or navigation != self._navigations:
                 return
+            self.end_slow_action()
             if not errors:
                 landed(result["folder"])
                 return
@@ -848,10 +853,35 @@ class FileBrowser(QWidget):
             self.status_label.setText(missing if isinstance(error, FileNotFoundError) else "Could not open this item.")
             self.status_label.setToolTip(str(error))
 
+        self.begin_slow_action(f"Opening {file.name or str(file)}…")
         executor = ThreadExecutor(stat, retries=0)
         executor.success.connect(lambda *_: answered([]))
         executor.errors.connect(answered)
         executor.run_task()
+
+    def begin_slow_action(self, notice):
+        """Say what is being waited on, if the wait goes on: a share can take seconds to answer."""
+
+        self.slow_action_timer.stop()
+        try:
+            self.slow_action_timer.timeout.disconnect()
+        except TypeError:
+            pass  # Nothing was connected.
+        self.slow_action_timer.timeout.connect(lambda: self.show_notice(notice))
+        self.slow_action_timer.start()
+
+    def show_notice(self, notice):
+        self.status_label.setText(notice)
+        self.status_label.setToolTip("")
+
+    def end_slow_action(self):
+        """The wait is over; if the notice went up, the status returns to the folder's own count."""
+
+        if self.slow_action_timer.isActive():
+            self.slow_action_timer.stop()
+            return
+        if self._rendered_state is not None:
+            self.render_entries(None)  # Puts the item count back; the rows are as they were.
 
     def page_before(self):
         """A picture of the list as it is, for the drill that follows a navigation."""
@@ -1165,12 +1195,29 @@ class FileBrowser(QWidget):
         self.status_label.setToolTip("")
 
     def delete_file(self, file):
-        error = shell_actions.recycle(file)
-        if error:
-            self.status_label.setText(error)
-            self.status_label.setToolTip(str(file))
-        else:
-            self.mark_dirty()
+        """Send the item to the Recycle Bin, on a worker: the shell asks its disk about it first."""
+
+        file = Path(file)
+        result = {}
+
+        def done(errors):
+            if sip.isdeleted(self):
+                return
+            self.end_slow_action()
+            error = result.get("error", "")
+            if errors:
+                error = f"Windows could not delete this item ({errors[-1]})."
+            if error:
+                self.status_label.setText(error)
+                self.status_label.setToolTip(str(file))
+            else:
+                self.mark_dirty()
+
+        self.begin_slow_action(f"Deleting {file.name}…")
+        executor = ThreadExecutor(lambda: result.update(error=shell_actions.recycle(file)), retries=0)
+        executor.success.connect(lambda *_: done([]))
+        executor.errors.connect(done)
+        executor.run_task()
 
     def show_file_properties(self, file):
         error = shell_actions.show_properties(file)

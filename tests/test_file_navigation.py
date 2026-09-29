@@ -164,9 +164,11 @@ class FileNavigationTests(unittest.TestCase):
     def test_context_menu_copies_deletes_and_opens_properties(self):
         with patch("src.ui.file_browser.shell_actions.recycle", return_value="") as recycle:
             self.choose_action(self.file, "Delete")
+            drain_workers()  # The Recycle Bin is asked on a worker.
             recycle.assert_called_once_with(self.file)
         with patch("src.ui.file_browser.shell_actions.recycle", return_value="Windows could not delete this item."):
             self.choose_action(self.file, "Delete")
+            drain_workers()
         self.assertEqual(self.browser.status_label.text(), "Windows could not delete this item.")
         with patch("src.ui.file_browser.shell_actions.show_properties", return_value="") as properties:
             self.choose_action(self.file, "Properties")
@@ -181,10 +183,12 @@ class FileNavigationTests(unittest.TestCase):
         row.setFocus()
         with patch("src.ui.file_browser.shell_actions.recycle", return_value="") as recycle:
             QTest.keyClick(row, Qt.Key.Key_Delete)
+            drain_workers()
             recycle.assert_called_once_with(self.file)
         self.browser.settings_button.setFocus()
         with patch("src.ui.file_browser.shell_actions.recycle", return_value="") as recycle:
             QTest.keyClick(self.browser.settings_button, Qt.Key.Key_Delete)
+            drain_workers()
             recycle.assert_not_called()
 
     def test_open_location_opens_containing_folder(self):
@@ -245,7 +249,11 @@ class FileNavigationTests(unittest.TestCase):
             self.assertEqual(shell_actions.recycle(self.file), "")
             library.return_value.SHFileOperationW.return_value = 5
             self.assertIn("error 5", shell_actions.recycle(self.file))
-        self.assertEqual(shell_actions.recycle(self.root / "gone.txt"), "That item no longer exists.")
+            # Gone by the time the shell looks: the shell says so, and nothing asks the disk before it.
+            library.return_value.SHFileOperationW.return_value = shell_actions.ERROR_FILE_NOT_FOUND
+            with patch.object(Path, "exists") as exists:
+                self.assertEqual(shell_actions.recycle(self.root / "gone.txt"), "That item no longer exists.")
+                exists.assert_not_called()
 
     def test_failed_forward_keeps_history_and_refresh_does_not_clear_it(self):
         self.browser.open_item(self.folder)
@@ -582,6 +590,65 @@ class FileNavigationTests(unittest.TestCase):
                 settle(self.browser)
                 self.assertEqual(self.browser.current_folder, where)
                 self.assertNotEqual(where, self.deep)
+
+    def test_deleting_asks_the_recycle_bin_off_the_ui_thread(self):
+        threads = []
+
+        def record(file):
+            threads.append(threading.current_thread())
+            return ""
+
+        with patch("src.ui.file_browser.shell_actions.recycle", side_effect=record), \
+                self.disk_questions_on_the_ui_thread() as asked:
+            self.browser.delete_file(self.file)
+            drain_workers()
+        self.assertEqual(asked, [])
+        self.assertEqual(len(threads), 1)
+        self.assertIsNot(threads[0], threading.current_thread())
+        self.assertTrue(self.browser._dirty)  # The listing is read again once the item has gone.
+
+    def test_a_slow_share_says_what_it_is_waiting_on_then_gives_the_count_back(self):
+        release = threading.Event()
+        count = self.browser.status_label.text()
+
+        def slow_recycle(file):
+            release.wait(5)
+            return ""
+
+        real = Path.stat
+        slow_file = self.deep / "far.txt"  # A file, so opening it launches rather than moves the panel.
+        slow_file.write_text("x", encoding="utf-8")
+        self.browser.program_clicked.connect(lambda file: None)
+
+        def slow_stat(path, *args, **kwargs):
+            if path == slow_file:
+                release.wait(5)
+            return real(path, *args, **kwargs)
+
+        actions = ((lambda: self.browser.delete_file(self.deep / "x.txt"), "Deleting x.txt…"),
+                   (lambda: self.browser.open_favorite(slow_file), "Opening far.txt…"))
+        for go, notice in actions:
+            with self.subTest(notice):
+                release.clear()
+                with patch("src.ui.file_browser.shell_actions.recycle", slow_recycle), \
+                        patch.object(Path, "stat", slow_stat):
+                    go()
+                    QTest.qWait(50)  # Well within the grace the notice gives a quick answer.
+                    self.assertEqual(self.browser.status_label.text(), count)  # Nothing yet: it may be quick.
+                    QTest.qWait(250)
+                    self.assertEqual(self.browser.status_label.text(), notice)
+                    release.set()
+                    drain_workers()
+                    settle(self.browser)
+                self.assertEqual(self.browser.status_label.text(), count)
+
+    def test_a_quick_action_never_shows_its_notice(self):
+        count = self.browser.status_label.text()
+        with patch("src.ui.file_browser.shell_actions.recycle", return_value=""):
+            self.browser.delete_file(self.file)
+            drain_workers()
+            QTest.qWait(250)  # Long past the notice's due time; it was called off when the delete landed.
+        self.assertEqual(self.browser.status_label.text(), count)
 
     def test_a_favorite_that_does_not_answer_is_not_reported_gone(self):
         real = Path.stat

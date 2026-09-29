@@ -7,6 +7,8 @@ from pathlib import Path
 FO_DELETE = 3
 FOF_ALLOWUNDO = 0x0040
 DE_OPCANCELLED = 0x4C7
+ERROR_FILE_NOT_FOUND = 2
+ERROR_PATH_NOT_FOUND = 3
 SEE_MASK_INVOKEIDLIST = 0x0000000C
 SW_SHOW = 5
 
@@ -41,16 +43,21 @@ class ShellExecuteInfo(ctypes.Structure):
 
 
 def recycle(file):
-    """Send a file to the Recycle Bin, so Windows can undo it. Returns an error string, or ''."""
+    """Send a file to the Recycle Bin, so Windows can undo it. Returns an error string, or ''.
+
+    Run it on a worker: the shell asks the item's disk about it first, and a sleeping share holds
+    that for the whole SMB timeout. Windows' own confirmation, if switched on, is still put up on
+    screen; it is the dialog's caller that waits, not the panel.
+    """
     if os.name != "nt":
         return "The Recycle Bin is only available on Windows."
     path = str(Path(file).absolute())
-    if not Path(path).exists():
-        return "That item no longer exists."
     operation = FileOperation(None, FO_DELETE, path + "\0\0", None, FOF_ALLOWUNDO, False, None, None)
     result = ctypes.WinDLL("shell32").SHFileOperationW(ctypes.byref(operation))
     if operation.fAnyOperationsAborted or result == DE_OPCANCELLED:
         return ""  # The user answered no to Windows' own confirmation; nothing to report.
+    if result in (ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND):
+        return "That item no longer exists."
     if result != 0:
         return f"Windows could not delete this item (error {result})."
     return ""
