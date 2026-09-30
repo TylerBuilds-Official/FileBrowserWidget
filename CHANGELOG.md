@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.3 — 2026-09-30
+
+- With a cascade open, the next row lights the moment the pointer reaches it, and the row it left goes out. Qt hands every mouse event to the open menu, so the rows heard nothing until their own level opened; the cascade tells them now, and a row no longer stays lit after the pointer has gone.
+- A level's icons no longer make the menu size and repaint itself once per icon as they land. A level of a few hundred items held the UI thread for over a second after it opened, and the next row's hover waited on that; the items paint their icons from the cache instead, and only the rows that got one are painted again.
+- The list is laid out once when it is built rather than once per row, and a render that changes nothing no longer lays every row out twice and elides every name again. A 350-item folder opens in about a quarter of the time; a refresh of an unchanged folder costs next to nothing.
+- Rows no longer put every event through two Python filters: Enter, Space, a press, and a hidden row tell the panel directly.
+
 ## 0.1.2 — 2026-09-28
 
 - **Folders and drives** menu, a new button beside Filter: the Desktop and your Downloads, Documents, Pictures, Music, and Videos, then local drives, then mapped network drives, named as Explorer names them (**Boot (C:)**, **Media (\\nas) (M:)**), with Windows' own drive icons and a red X for a disconnected share. It opens at once; labels and icons are read in the background and kept for next time.

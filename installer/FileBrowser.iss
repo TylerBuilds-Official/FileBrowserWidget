@@ -1,9 +1,9 @@
 ; File Browser installer. Build with tools\build.ps1, or compile this directly with
-;   ISCC.exe /DMyAppVersion=0.1.2 installer\FileBrowser.iss
+;   ISCC.exe /DMyAppVersion=0.1.3 installer\FileBrowser.iss
 ; after PyInstaller has produced dist\FileBrowser and tools\build-icon.py has written installer\wizard.
 
 #ifndef MyAppVersion
-  #define MyAppVersion "0.1.2"
+  #define MyAppVersion "0.1.3"
 #endif
 #define MyAppName "File Browser"
 #define MyAppPublisher "TylerBuilds"
