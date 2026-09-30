@@ -27,7 +27,9 @@ class FavoritesTests(unittest.TestCase):
         self.root = Path(__file__).resolve().parent / f".favorites-test-{uuid4().hex}"
         self.root.mkdir()
         self.addCleanup(self.remove_fixture)
-        self.settings = QSettings(str(self.root / "settings.ini"), QSettings.Format.IniFormat)
+        # Kept out of the browsed folder: QSettings writes it, and a lock file beside it, as it goes.
+        self.settings_path = self.root.parent / f".favorites-settings-{uuid4().hex}.ini"
+        self.settings = QSettings(str(self.settings_path), QSettings.Format.IniFormat)
         self.first = self.root / "Alpha.txt"
         self.last = self.root / "Zebra.txt"
         self.first.touch()
@@ -42,13 +44,17 @@ class FavoritesTests(unittest.TestCase):
     def remove_fixture(self):
         drain_workers()
         self.settings.sync()
+        self.settings_path.unlink(missing_ok=True)
         assert self.root.resolve().parent == Path(__file__).resolve().parent
         shutil.rmtree(self.root)
 
     def names(self):
         layout = self.browser.file_list_layout
-        return [layout.itemAt(i).widget().path.name for i in range(layout.count())
-                if layout.itemAt(i).widget().path.suffix != ".ini"]  # The fixture's own settings file.
+        return [layout.itemAt(i).widget().path.name for i in range(layout.count())]
+
+    def row_for(self, path):
+        layout = self.browser.file_list_layout
+        return next(layout.itemAt(i).widget() for i in range(layout.count()) if layout.itemAt(i).widget().path == path)
 
     def test_favorites_from_anywhere_lead_the_start_folder_and_only_there(self):
         # In the folder the panel opens on, every favorite heads the list, wherever it lives, in the
@@ -80,6 +86,10 @@ class FavoritesTests(unittest.TestCase):
         self.assertTrue(threads)
         self.assertNotIn(threading.get_ident(), threads)
         self.assertIs(self.browser.listed_as_folder(kept), False)  # Listed, so it opens without a look-up.
+        row = self.row_for(kept)
+        self.browser._rendered_state = None
+        self.browser.render_entries(0)
+        self.assertIs(self.row_for(kept), row)  # Its row is kept across renders like any other's.
         child = self.root / "Child"
         child.mkdir()
         (child / "Beta.txt").touch()
@@ -104,6 +114,7 @@ class FavoritesTests(unittest.TestCase):
         self.assertEqual(self.names(), ["Kept.txt", "Zebra.txt", "Zulu.txt", "Alpha.txt", "Child"])
         self.browser.toggle_favorite(kept)  # Unstarred, a favorite from elsewhere leaves the list.
         self.assertEqual(self.names(), ["Zebra.txt", "Zulu.txt", "Alpha.txt", "Child"])
+        self.assertNotIn(kept, self.browser._rows)  # And its row is released, as any unlisted item's is.
 
     def test_star_pins_without_opening_and_persists(self):
         opened = []
