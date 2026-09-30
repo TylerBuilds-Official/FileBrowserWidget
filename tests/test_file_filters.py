@@ -7,7 +7,7 @@ from uuid import uuid4
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import QPoint, Qt
+from PyQt6.QtCore import QPoint, QSettings, Qt
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication
 
@@ -184,6 +184,43 @@ class FileFilterTests(unittest.TestCase):
         self.assertFalse(self.browser.filter_menu.isVisible())
         self.browser.show()
         self.assertFalse(self.browser.filter_menu.isVisible())
+
+    def test_the_default_sort_is_the_order_a_folder_opens_in(self):
+        # Settings own the remembered sort, under the key the flyout once remembered its own choice
+        # by, so that choice carries over. The flyout's sort is for now: the dot on Filter marks a
+        # sort other than the default, and a reopen returns to the default.
+        settings_path = self.root.parent / f".filter-settings-{uuid4().hex}.ini"
+        settings = QSettings(str(settings_path), QSettings.Format.IniFormat)
+        settings.setValue("files/sort", "type")
+        browser = FileBrowser(settings=settings)
+        self.addCleanup(browser.deleteLater)
+        self.addCleanup(browser.hide)
+        self.addCleanup(settings_path.unlink, missing_ok=True)
+        browser.create_list_items(self.root)
+        settle(browser)
+
+        def names():
+            layout = browser.file_list_layout
+            return [layout.itemAt(i).widget().path.name for i in range(layout.count())]
+
+        self.assertEqual(browser.settings_modal.default_sort, "type")
+        self.assertEqual(browser.sort_combo.currentData(), "type")
+        self.assertEqual(names()[0], "Folder")
+        self.assertFalse(browser.filter_button.isChecked())  # The default is nothing to mark.
+        browser.sort_combo.setCurrentIndex(browser.sort_combo.findData("name"))
+        self.assertEqual(names()[0], "App.exe")
+        self.assertTrue(browser.filter_button.isChecked())  # A sort other than the default, for now.
+        settings.sync()
+        self.assertEqual(settings.value("files/sort"), "type")  # The flyout's choice is not the default.
+        browser.reset_location()  # Closed and opened again.
+        self.assertEqual(browser.sort_combo.currentData(), "type")
+        self.assertFalse(browser.filter_button.isChecked())
+        modal = browser.settings_modal
+        modal.sort_combo.setCurrentIndex(modal.sort_combo.findData("modified"))
+        self.assertEqual(browser.sort_combo.currentData(), "modified")  # Applies at once.
+        self.assertFalse(browser.filter_button.isChecked())
+        settings.sync()
+        self.assertEqual(settings.value("files/sort"), "modified")
 
     def test_navigation_clears_query_and_refresh_keeps_it(self):
         self.browser.search_edit.setText("Notes")

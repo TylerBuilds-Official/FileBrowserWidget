@@ -2,6 +2,7 @@ from src.ui import motion
 from src.ui.custom_widgets.ghost import Ghost
 from src.ui.smooth_scroll import SmoothComboBox
 from src.utils import window_effects
+from src.utils.file_listing import SORT_ORDERS
 
 from PyQt6.QtCore import QPoint, Qt, pyqtSignal
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout,
@@ -34,10 +35,9 @@ class FilterMenu(QWidget):
         self.filter_combo.addItem("All types", "all")
         self.sort_combo = SmoothComboBox()
         self.sort_combo.setAccessibleName("Sort files")
-        for label, value in (("Name: A to Z", "name"), ("Name: Z to A", "name_desc"),
-                             ("Newest first", "modified"), ("Largest first", "size"),
-                             ("File type", "type")):
+        for label, value in SORT_ORDERS:
             self.sort_combo.addItem(label, value)
+        # Starts on the default from Settings; a choice made here is for now, until the panel reopens.
         saved = settings.value("files/sort", "name") if settings is not None else "name"
         self.sort_combo.setCurrentIndex(max(0, self.sort_combo.findData(saved)))
         for title, combo in (("Type", self.filter_combo), ("Sort", self.sort_combo)):

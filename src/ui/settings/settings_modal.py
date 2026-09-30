@@ -11,6 +11,7 @@ from src.ui.custom_widgets.fluent_icon_button import FluentIconButton
 from src.ui.smooth_scroll import SmoothScroll, SmoothComboBox
 from src.utils import locations
 from src.utils.assets import asset
+from src.utils.file_listing import SORT_ORDERS
 from src.version import VERSION
 
 
@@ -21,6 +22,7 @@ class SettingsModal(QWidget):
     startup_changed = pyqtSignal(bool)
     hotkey_changed = pyqtSignal(str)
     hover_behavior_changed = pyqtSignal(str)
+    default_sort_changed = pyqtSignal(str)
     opened = pyqtSignal()
     closed = pyqtSignal()
 
@@ -97,6 +99,15 @@ class SettingsModal(QWidget):
             self.extensions_check.setChecked(settings.value("files/show_extensions", False, type=bool))
         self._card(settings_layout, "Show file extensions", "Include endings such as .txt and .pdf.",
                    self.extensions_check)
+        self.sort_combo = SmoothComboBox()
+        self.sort_combo.setObjectName("settingsSortCombo")
+        self.sort_combo.setAccessibleName("Default sort")
+        for label, value in SORT_ORDERS:
+            self.sort_combo.addItem(label, value)
+        # The same key the Filter flyout once remembered its choice under, so that choice carries over.
+        self._restore_combo(self.sort_combo, "files/sort", "name")
+        self._card(settings_layout, "Default sort", "The order a folder opens in. Filter changes it until the panel reopens.",
+                   self.sort_combo)
         self.hover_combo = SmoothComboBox()
         self.hover_combo.setObjectName("settingsHoverCombo")
         self.hover_combo.setAccessibleName("Folder hover")
@@ -173,6 +184,7 @@ class SettingsModal(QWidget):
         self.theme_combo.currentIndexChanged.connect(self._theme_changed)
         self.docking_combo.currentIndexChanged.connect(self.emit_docking_position_changed)
         self.extensions_check.stateChanged.connect(self.emit_refresh)
+        self.sort_combo.currentIndexChanged.connect(self._sort_changed)
         self.hover_combo.currentIndexChanged.connect(self._hover_changed)
         self.start_combo.currentIndexChanged.connect(lambda: self._save("files/start_in", self.start_in))
         self.startup_check.toggled.connect(self.startup_changed.emit)
@@ -316,6 +328,10 @@ class SettingsModal(QWidget):
         self._save("window/docking", self.docking_position)
         self.docking_position_changed.emit()
 
+    def _sort_changed(self):
+        self._save("files/sort", self.default_sort)
+        self.default_sort_changed.emit(self.default_sort)
+
     def _hover_changed(self):
         self._save("files/hover_behavior", self.hover_behavior)
         self.hover_behavior_changed.emit(self.hover_behavior)
@@ -335,6 +351,11 @@ class SettingsModal(QWidget):
     @property
     def show_extensions(self):
         return self.extensions_check.isChecked()
+
+    @property
+    def default_sort(self) -> str:
+        """The order a folder opens in: a value of SORT_ORDERS."""
+        return self.sort_combo.currentData()
 
     @property
     def hover_behavior(self) -> str:

@@ -137,6 +137,11 @@ def filter_options(entries):
     return options
 
 
+# The orders a folder can be shown in, as Settings and the Filter flyout both offer them.
+SORT_ORDERS = (("Name: A to Z", "name"), ("Name: Z to A", "name_desc"), ("Newest first", "modified"),
+               ("Largest first", "size"), ("Folders first, then type", "type"))
+
+
 def visible_entries(entries, query="", kind="all", sort="name"):
     query = query.strip().casefold()
     entries = [entry for entry in entries

@@ -256,6 +256,7 @@ class FileBrowser(QWidget):
         self.cascade = FolderCascade(self)
         self.cascade.set_behavior(self.settings_modal.hover_behavior)
         self.settings_modal.hover_behavior_changed.connect(self.cascade.set_behavior)
+        self.settings_modal.default_sort_changed.connect(self.set_sort)
         # Rebuilding the list on every keystroke is too slow in a large folder.
         self.search_edit.textChanged.connect(self.search_timer.start)
         self.filter_combo.currentIndexChanged.connect(self.apply_filters)
@@ -381,6 +382,7 @@ class FileBrowser(QWidget):
         self._scan_pending = False
         self.slow_scan_timer.stop()
         self._navigations += 1
+        self.set_sort(self.settings_modal.default_sort)  # A sort picked in Filter was for that visit.
         start = self.start_folder()
         if self.current_folder == start:
             return
@@ -630,9 +632,15 @@ class FileBrowser(QWidget):
         self.render_entries(0)
 
     def sort_changed(self):
-        if self.preferences is not None:
-            self.preferences.setValue("files/sort", self.sort_combo.currentData())
+        # A choice made in the flyout is for now: Settings hold the default, and a reopen returns to it.
         self.render_entries(0)
+
+    def set_sort(self, order):
+        """Show the list in one of the orders of SORT_ORDERS; the flyout follows and renders."""
+
+        index = self.sort_combo.findData(order)
+        if index >= 0 and index != self.sort_combo.currentIndex():
+            self.sort_combo.setCurrentIndex(index)
 
     def focus_search(self):
         self.filter_menu.open_at(self.filter_button)
@@ -648,7 +656,7 @@ class FileBrowser(QWidget):
 
     def update_filter_button(self):
         active = bool(self.search_edit.text().strip()) or self.filter_combo.currentData() != "all"
-        changed = active or self.sort_combo.currentData() != "name"
+        changed = active or self.sort_combo.currentData() != self.settings_modal.default_sort
         self.filter_button.setChecked(changed)
         self.filter_button.setText("Filter \u2022" if changed else "Filter")
         details = ["Search, filter, and sort (Ctrl+F)"]
