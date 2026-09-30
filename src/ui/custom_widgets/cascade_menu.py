@@ -10,7 +10,7 @@ class CascadeMenu(QMenu):
         super().__init__(parent)
         self.cascade = cascade
         self.filled = False
-        self.items = {}
+        self.items = {}  # Path to action, so a landed icon can repaint its own row.
         self.setStyle(cascade.menu_style)
         self.hovered.connect(cascade.prefetch)
 

@@ -50,9 +50,6 @@ class KeyboardHandler(QObject):
         shortcut.activated.connect(action)
         self.shortcuts.append(shortcut)
 
-    def register_row(self, row):
-        row.installEventFilter(self)
-
     def rows(self) -> list[FileRowWidget]:
         layout = self.browser.file_list_layout
 
@@ -129,17 +126,7 @@ class KeyboardHandler(QObject):
         return not self.browser.settings_modal.isVisible()
 
     def eventFilter(self, watched, event):
-        if event.type() == QEvent.Type.MouseButtonPress and isinstance(watched, FileRowWidget):
-            # A click on a row is a click away from the address bar, which rows never take focus for.
-            self.browser.close_address()
-        if event.type() == QEvent.Type.KeyPress and isinstance(watched, FileRowWidget):
-            if event.modifiers() == Qt.KeyboardModifier.NoModifier and event.key() in (
-                Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space,
-            ):
-                if not event.isAutoRepeat():
-                    watched.clicked.emit()
-                return True
-        elif event.type() == QEvent.Type.KeyPress and watched is self.browser and self.is_typing(event):
+        if event.type() == QEvent.Type.KeyPress and watched is self.browser and self.is_typing(event):
             self.jump_to_typed(event.text())
             return True
         return super().eventFilter(watched, event)

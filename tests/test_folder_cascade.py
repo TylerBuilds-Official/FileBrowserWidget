@@ -99,7 +99,7 @@ class FolderCascadeTests(unittest.TestCase):
     def row_for(self, path):
         for i in range(self.browser.file_list_layout.count()):
             row = self.browser.file_list_layout.itemAt(i).widget()
-            if row.toolTip() == str(path):
+            if row.path == path:
                 return row
         self.fail(f"No row for {path}")
 
@@ -168,10 +168,12 @@ class FolderCascadeTests(unittest.TestCase):
 
         self.assertEqual(tip(self.row_for(self.file)), str(self.file))
         self.assertEqual(tip(self.row_for(self.folder)), "")
-        self.assertEqual(self.row_for(self.folder).toolTip(), str(self.folder))
         modal = self.browser.settings_modal
         modal.hover_combo.setCurrentIndex(modal.hover_combo.findData("none"))
         self.assertEqual(tip(self.row_for(self.folder)), str(self.folder))
+        modal.hover_combo.setCurrentIndex(modal.hover_combo.findData("cascade"))
+        self.assertEqual(tip(self.row_for(self.folder)), "")
+        self.assertEqual(tip(self.row_for(self.file)), str(self.file))
         QToolTip.hideText()
         QTest.qWait(400)
 
@@ -406,6 +408,51 @@ class FolderCascadeTests(unittest.TestCase):
         readme = menu.mapToGlobal(menu.actionGeometry(menu.actions()[2]).center())
         QTest.mouseClick(submenu, Qt.MouseButton.LeftButton, pos=submenu.mapFromGlobal(readme))
         self.assertEqual(opened, [str(self.folder / "readme.md")])
+
+    def test_icons_land_by_repainting_the_level_never_by_changing_its_actions(self):
+        # A changed action makes QMenu size the level again and repaint all of it; a level of a
+        # few hundred items did that once per icon, holding the UI thread for over a second.
+        photos = [self.other / f"photo-{index:02d}.jpg" for index in range(12)]
+        for photo in photos:
+            photo.write_bytes(b"")
+        original = FileIcons.icon
+
+        def slow(provider, path):
+            time.sleep(0.05)  # Slow enough that the level is up, and watched, before any icon lands.
+            return original(provider, path)
+
+        with patch.object(FileIcons, "icon", slow):
+            self.hover(self.row_for(self.other))
+            self.settle()
+            menu = self.open_menu()
+            changed = []
+            for action in menu.actions():
+                action.changed.connect(lambda action=action: changed.append(action.text()))
+            self.assertFalse(any(photo in self.browser._icons for photo in photos))
+            self.wait_for(lambda: all(photo in self.browser._icons for photo in photos))
+        self.app.processEvents()
+        self.assertEqual(changed, [])
+        # The item still paints the icon that landed: it reads the cache as it is drawn.
+        action = next(action for action in menu.actions() if action.data() == str(photos[0]))
+        self.assertEqual(action.icon().pixmap(20, 20).toImage(), self.browser._icons[photos[0]][1].toImage())
+
+    def test_while_a_level_is_open_the_row_under_the_pointer_lights_at_once(self):
+        # A popup takes every mouse event, so the rows hear no Enter or Leave from Qt while a level
+        # is open: the cascade tells them instead, so the next row lights before its own level is
+        # due, and the row the pointer left is not lit for good.
+        row = self.row_for(self.folder)
+        self.hover(row)
+        self.assertEqual(row.property("hovered"), "true")  # Qt's own Enter, with no level open.
+        self.settle()
+        menu = self.open_menu()
+        other = self.row_for(self.other)
+        self.cascade.pointer_moved(other.mapToGlobal(QPoint(8, 8)))
+        self.assertEqual(other.property("hovered"), "true")
+        self.assertEqual(row.property("hovered"), "false")
+        self.assertEqual(row.property("cascaded"), "true")  # Its level is still up: lit as an open menu's title is.
+        self.assertTrue(self.cascade.timer.isActive())  # The level itself still waits for the rest.
+        self.cascade.pointer_moved(menu.mapToGlobal(QPoint(8, 8)))  # Into the level.
+        self.assertEqual(other.property("hovered"), "false")
 
     def test_icons_are_read_off_the_ui_thread_and_cached(self):
         threads = []

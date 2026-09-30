@@ -702,6 +702,8 @@ class FileBrowser(QWidget):
             empty_label.setObjectName("fileBrowserEmpty")
             self.file_list_layout.addWidget(empty_label)
             empty_label.show()
+        # Showing a row lays its parent out again, the whole list each time; laid out once, below.
+        self.file_list_layout.setEnabled(False)
         for entry in entries:
             row = self._rows.get(entry.path)
             if row is None:
@@ -711,6 +713,7 @@ class FileBrowser(QWidget):
                 self.update_file_row(row, entry)
             self.file_list_layout.addWidget(row)
             row.show()
+        self.file_list_layout.setEnabled(True)
         # The star buttons take focus too, so keep whatever inside a surviving row had it.
         if focused is not None and self.isAncestorOf(focused) and focused.isVisibleTo(self):
             focused.setFocus()
@@ -722,12 +725,15 @@ class FileBrowser(QWidget):
     def create_file_row(self, entry):
         file = entry.path
         file_row = FileRowWidget()
-        self.keyboard_handler.register_row(file_row)
+        file_row.path = file
+        file_row.is_folder = "folders" in entry.kinds
         self.cascade.register_row(file_row)
         file_row.setObjectName("fileEntry")
         file_row.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         file_row.setFixedHeight(40)
-        file_row.setToolTip(str(file))
+        self.set_row_tooltip(file_row)
+        # A click on a row is a click away from the address bar, which rows never take focus for.
+        file_row.pressed.connect(lambda: self.close_address())
         file_row.clicked.connect(lambda file=file: self.open_item(file))
         file_row.middle_clicked.connect(lambda file=file: self.open_in_explorer(file))
         file_row.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -757,11 +763,14 @@ class FileBrowser(QWidget):
         file_row.name_label = file_label
         file_row.icon_label = icon_label
         file_row.star_button = star
-        file_row.path = file
-        file_row.is_folder = "folders" in entry.kinds
         self.set_row_icon(file_row, entry)
         self.update_star(file_row, entry)
         return file_row
+
+    def set_row_tooltip(self, row):
+        """The path, except on a folder row while the cascade is on: the menu answers the same rest."""
+
+        row.setToolTip("" if row.is_folder and self.cascade.enabled else str(row.path))
 
     def icon_stamp(self, entry):
         return entry.stamp, self.devicePixelRatioF()
@@ -819,7 +828,9 @@ class FileBrowser(QWidget):
         file = entry.path
         show_extension = self.settings_modal.show_extensions or "folders" in entry.kinds
         row.name_label.set_name(file.name if show_extension else file.stem)
-        row.is_folder = "folders" in entry.kinds
+        if row.is_folder != ("folders" in entry.kinds):
+            row.is_folder = "folders" in entry.kinds
+            self.set_row_tooltip(row)
         self.set_row_icon(row, entry)
         self.update_star(row, entry)
 
@@ -834,9 +845,12 @@ class FileBrowser(QWidget):
 
     def restore_scroll_position(self, position):
         self.smooth_scroll.stop()
-        # Update the scrollbar range before restoring a longer folder's offset.
+        # Update the scrollbar range before restoring a longer folder's offset. The scroll area
+        # sizes the list on a layout request; asked here rather than left to the event loop.
+        # (adjustSize fitted the list to its own width and the scroll area then to the viewport's,
+        # laying every row out twice and eliding every name each time.)
         self.file_list_layout.activate()
-        self.file_list_widget.adjustSize()
+        QApplication.sendEvent(self.scroll_area, QEvent(QEvent.Type.LayoutRequest))
         self.scroll_area.verticalScrollBar().setValue(position)
 
     def current_location(self):

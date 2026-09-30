@@ -10,7 +10,7 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtCore import QEvent, QPoint, QPointF, Qt
-from PyQt6.QtGui import QContextMenuEvent, QDrag, QMouseEvent
+from PyQt6.QtGui import QContextMenuEvent, QDrag, QKeyEvent, QMouseEvent
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication
 
@@ -344,6 +344,19 @@ class FileNavigationTests(unittest.TestCase):
         QTest.keyClick(row, Qt.Key.Key_Return)
         settle(self.browser)
         self.assertEqual(self.browser.current_folder, self.folder)
+        self.browser.go_back()
+        settle(self.browser)
+        row = self.row_for(self.file)
+        row.setFocus()
+        QTest.keyClick(row, Qt.Key.Key_Space)
+        settle(self.browser)
+        self.assertEqual(opened, [str(self.file)] * 2)
+        # A held key repeats; the row opens once for the press, not once per repeat.
+        held = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Return, Qt.KeyboardModifier.NoModifier, "", True)
+        self.app.sendEvent(row, held)
+        settle(self.browser)
+        self.assertEqual(opened, [str(self.file)] * 2)
+        self.assertTrue(held.isAccepted())  # Still the row's key, never the panel's shortcuts'.
 
     def test_settings_do_not_navigate_underneath(self):
         self.show_browser()

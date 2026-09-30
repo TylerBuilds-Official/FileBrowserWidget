@@ -132,5 +132,21 @@ class FavoritesTests(unittest.TestCase):
         self.assertIn("A&amp;B", widget.text())
 
 
+class FavoritesKeyTests(unittest.TestCase):
+    def test_a_path_asked_about_again_is_keyed_once(self):
+        # contains() runs several times per row on every render, and the key asks Windows for the
+        # full path each time; a path already asked about is answered from its remembered key.
+        keyed = []
+        original = Favorites.key
+        with patch.object(Favorites, "key", staticmethod(lambda path: keyed.append(path) or original(path))):
+            favorites = Favorites()
+            path = Path(__file__).resolve()
+            self.assertEqual([favorites.contains(path) for _ in range(3)], [False, False, False])
+            self.assertEqual(keyed.count(path), 1)
+            favorites.toggle(path)  # Keys the path once itself, then the saved list by its strings.
+            self.assertEqual([favorites.contains(path) for _ in range(3)], [True, True, True])
+            self.assertEqual(keyed.count(path), 2)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -12,6 +12,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from types import SimpleNamespace
 
+from PyQt6.QtCore import QEvent, QObject
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtTest import QTest
 from src.ui.file_browser import FileBrowser
@@ -122,6 +123,31 @@ class BrowserCacheTests(unittest.TestCase):
         settle(self.browser)
         self.assertNotIn(removed, self.browser._rows)
         self.assertNotIn(removed, self.browser._icons)
+
+    def test_rendering_again_leaves_the_names_at_their_width(self):
+        # Restoring the scroll position used adjustSize, which fitted the list to its own width and
+        # left the scroll area to fit it back to the viewport's: every name was laid out and elided
+        # twice on every render, changed or not.
+        self.browser.show()
+        self.app.processEvents()
+        resized = []
+
+        class Resizes(QObject):
+            def eventFilter(self, watched, event):
+                if event.type() == QEvent.Type.Resize:
+                    resized.append(watched)
+                return False
+
+        counter = Resizes()
+        for row in self.browser._rows.values():
+            row.name_label.installEventFilter(counter)
+        self.browser.render_entries(0)  # Nothing changed.
+        self.browser._rendered_state = None
+        self.browser.render_entries(0)  # Built again from the same rows.
+        self.app.processEvents()
+        self.assertEqual(resized, [])
+        bar = self.browser.scroll_area.verticalScrollBar()
+        self.assertEqual(bar.maximum(), self.browser.file_list_widget.height() - self.browser.scroll_area.viewport().height())
 
     def test_rendering_again_does_not_ask_for_icons(self):
         self.browser.render_entries()

@@ -125,8 +125,13 @@ the cascade there, resting on a file row closes it, and a click on any row reach
 Nothing in the cascade waits on the disk or the shell on the UI thread. A folder is read on a worker
 through the thread executor as soon as the pointer rests on its row or item, so a level is usually
 ready before it is due to open; a slow folder shows **Loading…** until its items arrive. Icons are read
-the same way, a few at a time, and painted in behind the open menu. Listings use `os.scandir`, which
-Windows answers from the directory itself instead of a round trip per file.
+the same way, a few at a time, and painted in behind the open menu: each item paints its icon from the
+cache as it is drawn, so an icon landing never makes the menu size itself again. Listings use
+`os.scandir`, which Windows answers from the directory itself instead of a round trip per file.
+
+While a level is open Qt hands every mouse event to the menu, so the rows hear no Enter or Leave; the
+cascade tells them where the pointer is instead. The next row lights the moment the pointer reaches
+it, before its own level is due, and the row it left goes out.
 
 Every level opens on the same side, away from the screen edge the panel sits against, and only crosses
 over when a menu would otherwise leave the screen. A tall menu scrolls rather than spreading into columns,

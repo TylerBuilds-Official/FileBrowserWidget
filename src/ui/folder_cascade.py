@@ -3,7 +3,7 @@ from time import monotonic
 
 from PyQt6 import sip
 from PyQt6.QtCore import QEvent, QObject, QPoint, QPointF, Qt, QTimer
-from PyQt6.QtGui import QCursor, QIcon, QMouseEvent, QPixmap, QWheelEvent
+from PyQt6.QtGui import QCursor, QIcon, QIconEngine, QMouseEvent, QPixmap, QWheelEvent
 from PyQt6.QtWidgets import QApplication, QStyle
 
 from src.ui.custom_widgets.cascade_menu import CascadeMenu
@@ -12,6 +12,47 @@ from src.ui.custom_widgets.scrolling_menu_style import ScrollingMenuStyle
 from src.utils import window_effects
 from src.utils.file_listing import list_folder
 from src.utils.thread_executor import ThreadExecutor
+
+
+class CachedIcon(QIconEngine):
+    """An item's icon as the browser has it at the moment it is painted: generic until the shell
+    has answered for the file, its own from then on.
+
+    An icon that lands is never set on the action. A changed action makes QMenu size the level
+    again and repaint all of it, and a level of a few hundred items did that once per icon,
+    holding the UI thread for over a second after it opened; instead the level repaints, and
+    the items read the cache as they are drawn.
+    """
+
+    def __init__(self, browser, entry):
+        super().__init__()
+        self.browser = browser
+        self.entry = entry
+        self._scaled = None  # (source pixmap key, width, pixmap): the menu asks at its own size.
+
+    def current(self) -> QPixmap:
+        browser = self.browser
+        cached = browser._icons.get(self.entry.path)
+        if cached is not None and cached[0] == browser.icon_stamp(self.entry):
+            return cached[1]
+
+        return browser.generic_pixmap("folders" in self.entry.kinds)
+
+    def pixmap(self, size, mode, state) -> QPixmap:
+        source = self.current()
+        if source.width() == size.width():
+            return source
+        if self._scaled is None or self._scaled[:2] != (source.cacheKey(), size.width()):
+            scaled = source.scaled(size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+            self._scaled = (source.cacheKey(), size.width(), scaled)
+
+        return self._scaled[2]
+
+    def paint(self, painter, rect, mode, state):
+        painter.drawPixmap(rect, self.pixmap(rect.size(), mode, state))
+
+    def clone(self):
+        return CachedIcon(self.browser, self.entry)
 
 
 class FolderCascade(QObject):
@@ -81,9 +122,19 @@ class FolderCascade(QObject):
         if not self.enabled:
             self.close()
             self._set_hover_row(None)
+        for row in self.browser._rows.values():
+            self.browser.set_row_tooltip(row)  # Folder rows keep no tooltip while the menu answers the rest.
 
     def register_row(self, row: FileRowWidget):
-        row.installEventFilter(self)
+        row.cascade = self
+        row.pressed.connect(self.timer.stop)  # The click opens or drags the row; a menu would be in the way.
+
+    def row_hidden(self, row: FileRowWidget):
+        if row is self._source_row:
+            # A rebuild hides every row and shows the survivors again in the same call.
+            QTimer.singleShot(0, self._source_row_settled)
+        if row is self._hover_row:
+            self._set_hover_row(None)
 
     def is_open(self) -> bool:
         return self._menu is not None
@@ -98,23 +149,11 @@ class FolderCascade(QObject):
 
     def eventFilter(self, watched, event):
         kind = event.type()
-        if watched is self.browser.file_list_widget:
-            if kind == QEvent.Type.HoverMove:
-                self._pointer_over_list(event.globalPosition().toPoint())
-            elif kind == QEvent.Type.HoverLeave:
-                self._pointer = None  # Coming back to the same pixel later is a move.
-                self._set_hover_row(None)
-        elif isinstance(watched, FileRowWidget):
-            if kind == QEvent.Type.ToolTip and self.enabled and watched.is_folder:
-                return True  # The path tooltip and the menu would answer the same rest.
-            if kind == QEvent.Type.MouseButtonPress:
-                self.timer.stop()  # The click opens or drags the row; a menu would be in the way.
-            elif kind == QEvent.Type.Hide:
-                if watched is self._source_row:
-                    # A rebuild hides every row and shows the survivors again in the same call.
-                    QTimer.singleShot(0, self._source_row_settled)
-                if watched is self._hover_row:
-                    self._set_hover_row(None)
+        if kind == QEvent.Type.HoverMove:
+            self._pointer_over_list(event.globalPosition().toPoint())
+        elif kind == QEvent.Type.HoverLeave:
+            self._pointer = None  # Coming back to the same pixel later is a move.
+            self._set_hover_row(None)
 
         return super().eventFilter(watched, event)
 
@@ -169,7 +208,12 @@ class FolderCascade(QObject):
     def _set_hover_row(self, row: FileRowWidget | None):
         if row is self._hover_row:
             return
-        self._hover_row = row
+        left, self._hover_row = self._hover_row, row
+        # While a level is open the popup hears every move and the rows none, so they are told here.
+        if left is not None and not sip.isdeleted(left):
+            left.set_hovered(False)
+        if row is not None:
+            row.set_hovered(True)
         self.timer.stop()
         self.prefetch_timer.stop()
         if row is not None and row is not self._source_row and (row.is_folder or self.is_open()):
@@ -420,16 +464,15 @@ class FolderCascade(QObject):
         self.load_icons(menu, wanted)
 
     def icon_for(self, entry, wanted: list) -> QIcon:
-        """A cached icon shows now; the rest start generic and are read behind the open menu."""
+        """An icon painted from the cache: a cached one shows now, the rest start generic and are
+        read behind the open menu, showing as they land."""
 
         browser = self.browser
         cached = browser._icons.get(entry.path)
-        if cached is not None and cached[0] == browser.icon_stamp(entry):
-            return QIcon(cached[1])
-        if not (entry.online_only or entry.error):
+        if (cached is None or cached[0] != browser.icon_stamp(entry)) and not (entry.online_only or entry.error):
             wanted.append(entry)
 
-        return QIcon(browser.generic_pixmap("folders" in entry.kinds))
+        return QIcon(CachedIcon(browser, entry))
 
     def load_icons(self, menu: CascadeMenu, queue: list):
         """Read a few icons on a worker, paint them in, then go again until the level is done."""
@@ -448,14 +491,15 @@ class FolderCascade(QObject):
         self.browser.icon_reader.read(batch, self.browser.devicePixelRatioF(), landed)
 
     def _apply_icons(self, menu: CascadeMenu, images: list):
+        """The items read the cache as they are painted, so a landed icon changes no action and
+        the level keeps its size: the rows that got one are painted again, nothing more."""
+
         browser = self.browser
         for entry, image in images:
-            pixmap = QPixmap.fromImage(image)
-            browser._icons[entry.path] = (browser.icon_stamp(entry), pixmap)
+            browser._icons[entry.path] = (browser.icon_stamp(entry), QPixmap.fromImage(image))
             action = menu.items.get(str(entry.path))
             if action is not None:
-                action.setIcon(QIcon(pixmap))
-        self.fit_menu_heights()
+                menu.update(menu.actionGeometry(action))
 
     def fit_menu_heights(self):
         """A changed action makes QMenu grow back to its full height; keep each level on the screen."""

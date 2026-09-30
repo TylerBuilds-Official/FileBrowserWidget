@@ -114,7 +114,8 @@ QWidget#fileEntry {
     border: 1px solid transparent;
     border-radius: 4px;
 }
-QWidget#fileEntry:hover, QWidget#fileEntry[cascaded="true"] { background: $hover; }
+/* The row keeps its own hover state: Qt's :hover goes quiet while a cascade level is open. */
+QWidget#fileEntry[hovered="true"], QWidget#fileEntry[cascaded="true"] { background: $hover; }
 QWidget#fileEntry:focus { background: $selection; border: 1px solid $accent; }
 QLabel#fileEntryName, QLabel#fileEntryIcon { background: transparent; border: none; font-size: 14px; }
 QLabel#fileBrowserEmpty { padding: 20px 0; }
