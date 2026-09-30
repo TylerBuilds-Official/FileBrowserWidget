@@ -112,16 +112,15 @@ class MotionTests(unittest.TestCase):
         self.app.processEvents()
         before = QPixmap(area.viewport().size())
         before.fill(QColor("red"))
-        overlay = PageTransition.play(area.viewport(), before, forward=True)
+        overlay = PageTransition.play(area.viewport(), before)
         self.assertIsNotNone(overlay)
         self.assertEqual(overlay.geometry(), area.viewport().rect())
         self.assertTrue(overlay.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents))
-        self.assertEqual(overlay.direction, 1)
         QTest.qWait(400)
         self.assertTrue(sip.isdeleted(overlay))
-        self.assertIsNone(PageTransition.play(area.viewport(), None, forward=True))
+        self.assertIsNone(PageTransition.play(area.viewport(), None))
         motion.override = False
-        self.assertIsNone(PageTransition.play(area.viewport(), before, forward=True))
+        self.assertIsNone(PageTransition.play(area.viewport(), before))
 
     def test_the_old_page_goes_at_once_and_only_the_new_one_fades_in(self):
         area = QScrollArea()
@@ -139,7 +138,7 @@ class MotionTests(unittest.TestCase):
         self.app.processEvents()
         after = QPixmap(area.viewport().size())
         after.fill(QColor("red"))  # The new page as a picture; the old page was anything else.
-        overlay = PageTransition(area.viewport(), after, forward=True)
+        overlay = PageTransition(area.viewport(), after)
         self.addCleanup(overlay.deleteLater)
         overlay.animation.stop()
         palette = overlay.palette()
@@ -149,6 +148,10 @@ class MotionTests(unittest.TestCase):
         # real rows, so neither the old picture nor the live rows (green) show, only the fill (blue).
         overlay.set_progress(0.0)
         self.assertEqual(area.viewport().grab().toImage().pixelColor(40, 30), QColor("blue"))
+        # Halfway, the new page covers the full width in place: even the left edge carries it, rather
+        # than staying pure background as it would if the page slid in from an offset.
+        overlay.set_progress(0.5)
+        self.assertGreater(area.viewport().grab().toImage().pixelColor(2, 30).red(), 0)
         # By the end the new page has fully arrived.
         overlay.set_progress(1.0)
         self.assertEqual(area.viewport().grab().toImage().pixelColor(40, 30), QColor("red"))
@@ -183,18 +186,18 @@ class BrowserMotionTests(unittest.TestCase):
         QTest.qWait(300)
         self.assertEqual(ghosts(self.app), [])
 
-    def test_navigation_drills_in_and_out_in_the_direction_taken(self):
+    def test_navigation_fades_the_new_page_in_and_clears(self):
         self.browser.show()
         self.app.processEvents()
-        for move, direction in (
-            (lambda: self.browser.navigate_to(self.root / "Inner"), 1),
-            (self.browser.go_back, -1),
-            (self.browser.go_forward, 1),
-            (self.browser.go_up, -1),
+        for move in (
+            lambda: self.browser.navigate_to(self.root / "Inner"),
+            self.browser.go_back,
+            self.browser.go_forward,
+            self.browser.go_up,
         ):
             move()
-            settle(self.browser)  # The drill plays once the folder has been read.
-            self.assertEqual([overlay.direction for overlay in self.overlays()], [direction])
+            settle(self.browser)  # The fade plays once the folder has been read.
+            self.assertEqual(len(self.overlays()), 1)
             QTest.qWait(400)
             self.assertEqual(self.overlays(), [])
         self.dismiss()

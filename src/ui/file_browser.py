@@ -933,10 +933,10 @@ class FileBrowser(QWidget):
 
         return None
 
-    def page_after(self, before, forward: bool):
-        """Drill in towards a folder below, or out towards one above or behind."""
+    def page_after(self, before):
+        """Fade the new page in over the old one, once the folder it asked for has landed."""
 
-        PageTransition.play(self.scroll_area.viewport(), before, forward)
+        PageTransition.play(self.scroll_area.viewport(), before)
 
     def navigate_to(self, folder):
         folder = Path(folder)
@@ -944,7 +944,6 @@ class FileBrowser(QWidget):
             return
         self._navigations += 1
         previous_location = self.current_location()
-        forward = not self.current_folder.is_relative_to(folder)
         before = self.page_before()
 
         def landed(ok):
@@ -952,7 +951,7 @@ class FileBrowser(QWidget):
                 self.folder_history.append(previous_location)
                 self.forward_history.clear()
                 self.update_navigation_buttons()
-                self.page_after(before, forward)
+                self.page_after(before)
 
         self.create_list_items(folder, done=landed)
 
@@ -969,7 +968,7 @@ class FileBrowser(QWidget):
                 self.folder_history.pop()
                 self.forward_history.append(previous_location)
                 self.update_navigation_buttons()
-                self.page_after(before, forward=False)
+                self.page_after(before)
 
         self.create_list_items(folder, scroll_position, done=landed)
 
@@ -986,7 +985,7 @@ class FileBrowser(QWidget):
                 self.forward_history.pop()
                 self.folder_history.append(previous_location)
                 self.update_navigation_buttons()
-                self.page_after(before, forward=True)
+                self.page_after(before)
 
         self.create_list_items(folder, scroll_position, done=landed)
 
@@ -1168,6 +1167,7 @@ class FileBrowser(QWidget):
                 self.go_forward()
             event.accept()
         else:
+            self.close_address()  # A press on the panel's own surface is a click away from the address bar.
             if not self.rect().contains(event.position().toPoint()):
                 self.record_dismissal(event.globalPosition().toPoint())  # Qt closes the popup on this press.
             super().mousePressEvent(event)

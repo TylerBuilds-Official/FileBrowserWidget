@@ -45,9 +45,9 @@ for anything leaving, and the standard curve for anything moving while on screen
 from the edge it is docked against and fades up, the way a tray flyout opens, and leaves the same
 way; the picture that slides out is a snapshot, so the real window is already gone, focus has moved
 on, and the click that dismissed it lands where it should. Settings drills in over the files from the
-right and back out again; navigating between folders drills the list in or out in the direction you
-went; the filter flyout drops from its button; and a docking change glides the open panel to its new
-corner. Turning off **Animation effects** in Windows makes all of it snap instead, as Windows does.
+right and back out again; navigating between folders fades the new list in place, the old one gone at
+once so nothing doubles; the filter flyout drops from its button; and a docking change glides the open
+panel to its new corner. Turning off **Animation effects** in Windows makes all of it snap instead, as Windows does.
 
 ## Launch and pin
 
