@@ -9,6 +9,7 @@
 - Folders are read on worker threads, so a slow or sleeping network share never freezes the panel. Opening an item, opening a favorite, deleting to the Recycle Bin, and reading a drive's name, icon, and space all happen off the UI thread; a wait of more than a moment says what it is doing.
 - Folders on another machine are refreshed on a timer and on each open rather than watched, since setting a watch would touch the share on the UI thread.
 - An empty card reader or disc drive reports an error instead of raising Windows' "insert a disk" dialog.
+- The drill between folders no longer shows both pages at once: the old goes at once and the new fades in, so icons never double mid-animation.
 
 ## 0.1.1 — 2026-09-22
 
