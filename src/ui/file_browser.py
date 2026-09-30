@@ -519,6 +519,13 @@ class FileBrowser(QWidget):
     def scan_folder(self, folder, cache, force):
         """Everything a listing needs from the disk. Runs on a worker, so it touches no widget."""
 
+        server = locations.server_name(folder)
+        if server is not None:
+            # A server alone lists its shares as folders, as Explorer does at \\server. None is asked
+            # about itself: each would be a round trip, and a share's root has no stamp worth keeping.
+            entries = [FileEntry(folder / share, {"folders"}, stamp=("share",))
+                       for share in locations.list_shares(server)]
+            return {"entries": entries, "scan_errors": [], "stamps": {}}
         if folder == self.desktop_folder and self.desktop_folder == self.desktop_paths.primary:
             files, scan_errors = self.desktop_paths.list_files(self.traverse_level)
         else:
@@ -755,9 +762,7 @@ class FileBrowser(QWidget):
 
         icon_label = QLabel()
 
-        show_extension = self.settings_modal.show_extensions or "folders" in entry.kinds
-        display_name = file.name if show_extension else file.stem
-        file_label = FileNameLabel(display_name)
+        file_label = FileNameLabel(self.row_name(entry))
 
         icon_label.setObjectName("fileEntryIcon")
         icon_label.setFixedSize(20, 20)
@@ -779,6 +784,18 @@ class FileBrowser(QWidget):
         """The path, except on a folder row while the cascade is on: the menu answers the same rest."""
 
         row.setToolTip("" if row.is_folder and self.cascade.enabled else str(row.path))
+
+    def row_name(self, entry):
+        """What the row calls its item: the name, without its ending unless Settings show endings, or
+        for a share at its root, which has no name of its own, what the title would call it."""
+
+        file = entry.path
+        if not file.name:
+            return self.place_name(file)
+        if self.settings_modal.show_extensions or "folders" in entry.kinds:
+            return file.name
+
+        return file.stem
 
     def icon_stamp(self, entry):
         return entry.stamp, self.devicePixelRatioF()
@@ -833,9 +850,7 @@ class FileBrowser(QWidget):
         self.read_icons()
 
     def update_file_row(self, row, entry):
-        file = entry.path
-        show_extension = self.settings_modal.show_extensions or "folders" in entry.kinds
-        row.name_label.set_name(file.name if show_extension else file.stem)
+        row.name_label.set_name(self.row_name(entry))
         if row.is_folder != ("folders" in entry.kinds):
             row.is_folder = "folders" in entry.kinds
             self.set_row_tooltip(row)
@@ -901,6 +916,11 @@ class FileBrowser(QWidget):
 
         def stat():
             locations.quiet_drive_errors()
+            server = locations.server_name(file)
+            if server is not None:
+                locations.list_shares(server)  # A server that answers opens as the folder of its shares.
+                result["folder"] = True
+                return
             result["folder"] = S_ISDIR(Path(file).stat().st_mode)
 
         def answered(errors):
@@ -1171,7 +1191,11 @@ class FileBrowser(QWidget):
         return self._drive_icons[kind]
 
     def go_up(self):
-        self.navigate_to(self.current_folder.parent)
+        folder = self.current_folder
+        parent = folder.parent
+        if parent == folder:
+            parent = locations.server_root(folder) or parent  # Up from a share is its server, and the other shares.
+        self.navigate_to(parent)
 
     def update_navigation_buttons(self):
         self.back_button.setEnabled(bool(self.folder_history))

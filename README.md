@@ -67,11 +67,11 @@ It uses [Windows hotkey registration](https://learn.microsoft.com/en-us/windows/
 ## Search, filters, and sorting
 
 - **Filter** opens search, type filtering, and sorting in a dropdown overlay; **Ctrl+F** opens it with search focused, and **Tab** moves on to the Type and Sort boxes. Search matches filenames in the current folder, including their extensions, without scanning subfolders. Typing settles briefly before the list is rebuilt, so a long folder does not stutter between keystrokes. **Enter**, **Done**, **Escape**, or a click outside dismisses the overlay and keeps the results. Outside the overlay, **Escape** clears a search first, then closes the browser.
-- A dot on **Filter** marks an active search, type filter, or non-default sort. **Clear filters** resets search and type without changing your sort.
+- A dot on **Filter** marks an active search, type filter, or a sort other than your default. **Clear filters** resets search and type without changing your sort.
 - Typing while the list has focus jumps to the next name starting with those letters, the way Explorer does; the same letter again steps through the names that start with it. Search stays **Ctrl+F**.
 - The type dropdown contains only categories and extensions detected in the current folder, with counts. Search and type filtering work together. Empty results say **No matching files**.
 - Programs include executable files, installers, batch files, and Windows shortcuts targeting executables. Games are detected from known launcher URLs (Steam, Epic, Ubisoft, Battle.net) or executable targets under `steamapps/common`; unrecognized shortcuts remain under Shortcuts and their extension.
-- Sort by name in either direction, newest first, largest first, or type. The sort choice is remembered. Folder sizes are not calculated recursively.
+- Sort by name in either direction, newest first, largest first, or folders first then by type. **Settings → Default sort** is the order a folder opens in; a sort picked in the overlay lasts until the panel reopens. Folder sizes are not calculated recursively.
 - Refresh preserves the query and scroll position. Moving to another folder clears the query; a type filter stays selected if that category exists there.
 
 ## Scrolling and refresh performance
@@ -145,11 +145,11 @@ in behind the open menu the way the panel's rows do.
 
 Click a row's star or right-click **Add to favorites**. Favorites are remembered and pinned above other matching items in their folder. The **Favorites** menu opens saved files and folders from anywhere and includes a removal menu for moved or deleted items.
 
-Click breadcrumb segments to navigate to ancestors; **…** opens earlier segments when the path is too long. **Desktop** or **Alt+Home** returns to the Windows Desktop location, including redirected desktops. Opening the panel starts at the Desktop, the way the shell's own chevron menus do, and history is dropped with it. **Settings → Start in** can make that Downloads, Documents, or a drive instead, or **Where I left off**, which brings the panel back to the last folder with its history, across restarts too. Alt+Left/Right, mouse side buttons, and Backspace navigate history; Alt+Up opens the parent. Back/Forward restore scroll positions. F5 or Ctrl+R refreshes.
+Click breadcrumb segments to navigate to ancestors; **…** opens earlier segments when the path is too long. **Desktop** or **Alt+Home** returns to the Windows Desktop location, including redirected desktops. Opening the panel starts at the Desktop, the way the shell's own chevron menus do, and history is dropped with it. **Settings → Start in** can make that Downloads, Documents, or a drive instead, or **Where I left off**, which brings the panel back to the last folder with its history, across restarts too. Alt+Left/Right, mouse side buttons, and Backspace navigate history; Alt+Up opens the parent, and at a share's root the server, whose shares it lists. Back/Forward restore scroll positions. F5 or Ctrl+R refreshes.
 
 **Folders and drives**, the This PC button beside **Filter**, lists the Desktop and your Downloads, Documents, Pictures, Music, and Videos, then local drives, then mapped network drives. Drives are named the way Explorer names them, such as **Boot (C:)** or **Media (\\nas) (M:)**, and a disconnected share shows Windows' red X. The menu opens at once; drive labels and folder icons are read on a worker and filled in as they arrive, and kept for next time. At a drive's root the title names it the same way.
 
-**Ctrl+L**, **Alt+D**, a click beside the breadcrumbs, or **Go to path…** in that menu turns the path into text to type or paste a place into, a share such as `\\server\share` included. **Enter** opens it: a folder in the panel, anything else with Windows. Quotes from **Copy as path**, `%VARIABLES%`, a bare drive letter, and paths relative to the folder shown all work. **Esc** or clicking away puts the breadcrumbs back.
+**Ctrl+L**, **Alt+D**, a click beside the breadcrumbs, or **Go to path…** in that menu turns the path into text to type or paste a place into, a share such as `\\server\share` included, or a server alone, `\\server`, which opens as the folder of its shares the way Explorer shows it. **Enter** opens it: a folder in the panel, anything else with Windows. Quotes from **Copy as path**, `%VARIABLES%`, a bare drive letter, and paths relative to the folder shown all work. **Esc** or clicking away puts the breadcrumbs back.
 
 ## Start with Windows
 

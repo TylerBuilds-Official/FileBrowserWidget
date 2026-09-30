@@ -399,6 +399,17 @@ class FileNavigationTests(unittest.TestCase):
             refresh.assert_not_called()
         self.assertEqual(self.browser.folder_history, [])
 
+    def test_up_from_a_shares_root_is_its_server(self):
+        # \\nas\Media is its own parent as a path; above it Explorer has the server and its shares.
+        self.browser.current_folder = Path(r"\\nas") / "Media"
+        with patch.object(self.browser, "navigate_to") as go:
+            self.browser.go_up()
+        go.assert_called_once_with(Path(r"\\nas"))
+        self.browser.current_folder = Path(r"\\nas")
+        with patch.object(self.browser, "create_list_items") as refresh:
+            self.browser.go_up()  # Nothing is above the server itself.
+            refresh.assert_not_called()
+
 
     def make_scrollable(self, folder):
         for i in range(40):

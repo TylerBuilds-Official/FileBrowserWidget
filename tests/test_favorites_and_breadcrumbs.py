@@ -131,6 +131,23 @@ class FavoritesTests(unittest.TestCase):
         widget.update_links()
         self.assertIn("A&amp;B", widget.text())
 
+    def test_crumbs_on_a_share_start_at_its_server(self):
+        # A share is the top of its path, but the panel can list the server above it, so the crumbs
+        # go there too; the server and the share are called by their names, as Explorer calls them.
+        widget = Breadcrumbs(r"\\nas\Media\Photos")
+        self.addCleanup(widget.deleteLater)
+        widget.resize(4000, 26)
+        widget.update_links()
+        self.assertEqual(widget.paths, [Path(r"\\nas"), Path(r"\\nas") / "Media", Path(r"\\nas\Media\Photos")])
+        self.assertEqual([Breadcrumbs.label(path) for path in widget.paths], ["nas", "Media", "Photos"])
+        chosen = []
+        widget.folder_clicked.connect(chosen.append)
+        widget.open_link("0")
+        self.assertEqual(chosen, [Path(r"\\nas")])
+        widget.set_name(r"\\nas")
+        self.assertEqual(widget.paths, [Path(r"\\nas")])
+        self.assertEqual(Breadcrumbs.label(Path("C:\\")), "C:\\")
+
 
 class FavoritesKeyTests(unittest.TestCase):
     def test_a_path_asked_about_again_is_keyed_once(self):

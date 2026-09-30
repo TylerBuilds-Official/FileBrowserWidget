@@ -6,6 +6,8 @@
 - A level's icons no longer make the menu size and repaint itself once per icon as they land. A level of a few hundred items held the UI thread for over a second after it opened, and the next row's hover waited on that; the items paint their icons from the cache instead, and only the rows that got one are painted again.
 - The list is laid out once when it is built rather than once per row, and a render that changes nothing no longer lays every row out twice and elides every name again. A 350-item folder opens in about a quarter of the time; a refresh of an unchanged folder costs next to nothing.
 - Rows no longer put every event through two Python filters: Enter, Space, a press, and a hidden row tell the panel directly.
+- A server typed alone, `\\server`, opens as the folder of its shares, as Explorer shows it, instead of "There is no such file or folder"; the shares are asked of the server on a worker. **Up** from a share goes to its server, and the breadcrumbs show the server before the share.
+- **Default sort** setting under Files: the order a folder opens in, by name either way, newest first, largest first, or folders first then by type. The sort you had picked in Filter carries over as your default. A sort picked in Filter now lasts until the panel reopens, and the dot on Filter marks a sort other than your default.
 
 ## 0.1.2 — 2026-09-28
 

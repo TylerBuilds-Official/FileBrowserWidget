@@ -1,5 +1,6 @@
 import os
 import shutil
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -8,7 +9,7 @@ from uuid import uuid4
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtCore import QEvent, QPoint, QPointF, Qt
-from PyQt6.QtGui import QMouseEvent
+from PyQt6.QtGui import QIcon, QMouseEvent
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication
 
@@ -136,6 +137,34 @@ class AddressBarTests(unittest.TestCase):
         self.go_to(str(self.root / "Missing"))
         self.assertEqual(self.browser.status_label.text(), "There is no such file or folder.")
         self.assertEqual(self.browser.current_folder, self.root)
+
+    def test_a_server_alone_opens_as_the_folder_of_its_shares(self):
+        # \\server is not a place on any disk, so a stat of it says it does not exist; Explorer shows
+        # the server's shares there, and so does the panel, asked of the server on a worker.
+        asked = []
+
+        def shares(server):
+            asked.append((server, threading.get_ident()))
+            return ["Wyvern", "Ember"]
+
+        with patch("src.utils.locations.list_shares", shares), \
+                patch("src.utils.locations.read_space", return_value=None), \
+                patch("src.utils.file_icons.FileIcons.icon", lambda provider, path: QIcon()):
+            self.go_to(r"\\nas")
+            self.assertEqual(self.browser.current_folder, Path(r"\\nas"))
+            self.assertEqual(self.browser.title_label.text(), "nas")
+            rows = [self.browser.file_list_layout.itemAt(i).widget() for i in range(self.browser.file_list_layout.count())]
+            self.assertEqual([row.name_label.text() for row in rows], ["Ember", "Wyvern"])
+            self.assertEqual([row.path for row in rows], [Path(r"\\nas") / "Ember", Path(r"\\nas") / "Wyvern"])
+            self.assertTrue(all(row.is_folder for row in rows))
+            self.assertTrue(self.browser.listed_as_folder(Path(r"\\nas") / "Ember"))
+            self.assertNotIn(threading.get_ident(), [thread for _, thread in asked])
+            self.assertEqual({server for server, _ in asked}, {"nas"})
+        # A server that is not there, or is asleep, is a missing place like any other.
+        with patch("src.utils.locations.list_shares", side_effect=FileNotFoundError(2, "The network path was not found")):
+            self.go_to(r"\\nowhere")
+        self.assertEqual(self.browser.status_label.text(), "There is no such file or folder.")
+        self.assertEqual(self.browser.current_folder, Path(r"\\nas"))
 
     def test_clicking_beside_the_crumbs_types_the_path_and_a_crumb_still_opens(self):
         crumbs = self.browser.path_label

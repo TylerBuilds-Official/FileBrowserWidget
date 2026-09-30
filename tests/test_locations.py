@@ -47,6 +47,25 @@ class DriveTests(unittest.TestCase):
         self.assertTrue(locations.is_remote(r"\\nas\Media\Photos"))
         self.assertFalse(locations.is_remote(os.environ["SystemDrive"] + "\\Windows"))
 
+    def test_a_server_alone_is_told_from_a_share_on_it(self):
+        self.assertEqual(locations.server_name(r"\\nas"), "nas")
+        self.assertEqual(locations.server_name("\\\\nas\\"), "nas")
+        self.assertIsNone(locations.server_name(r"\\nas\Media"))
+        self.assertIsNone(locations.server_name("C:\\"))
+        self.assertEqual(locations.server_root(r"\\nas\Media\Photos"), Path(r"\\nas"))
+        self.assertEqual(locations.server_root(Path(r"\\nas") / "Media"), Path(r"\\nas"))
+        self.assertIsNone(locations.server_root(r"\\nas"))
+        self.assertIsNone(locations.server_root("C:\\Users"))
+
+    def test_a_server_lists_the_folders_it_shares_as_explorer_does(self):
+        # Disk shares by name; not the administrative ones, the printer, the IPC endpoint, or any
+        # share whose name ends in $, which Explorer keeps out of sight.
+        offered = [("Wyvern", 0), ("print$", 0), ("IPC$", 0x80000003), ("C$", 0x80000000),
+                   ("Office Printer", 1), ("ember", 0), ("Dragon", 0x40000000)]
+        with patch("src.utils.locations.enumerate_shares", return_value=offered) as asked:
+            self.assertEqual(locations.list_shares("nas"), ["Dragon", "ember", "Wyvern"])
+        asked.assert_called_once_with("nas")
+
     def test_a_mapped_letter_is_on_another_machine_and_only_its_bare_root_is_asked(self):
         with patch("src.utils.locations.drive_kind", return_value="network") as kind:
             self.assertTrue(locations.is_remote(Path("M:\\Films\\2026")))

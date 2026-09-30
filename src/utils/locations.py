@@ -122,6 +122,65 @@ def is_remote(path) -> bool:
     return os.name == "nt" and len(drive) == 2 and drive_kind(drive + "\\") == "network"
 
 
+def server_name(path) -> str | None:
+    """The server a bare \\\\server path names, with no share chosen on it; None for any other path."""
+
+    drive = Path(path).drive.rstrip("\\")
+    if drive.startswith("\\\\") and drive.count("\\") == 2:
+        return drive[2:]
+
+    return None
+
+
+def server_root(path) -> Path | None:
+    """\\\\server for a path on one of its shares, \\\\server\\share\\...; None for a server alone or a local path."""
+
+    drive = Path(path).drive.rstrip("\\")
+    if drive.startswith("\\\\") and drive.count("\\") == 3:
+        return Path(drive.rpartition("\\")[0])
+
+    return None
+
+
+STYPE_SPECIAL = 0x80000000  # An administrative share, such as C$.
+
+
+def enumerate_shares(server: str) -> list[tuple[str, int]]:
+    """Every share a server offers, with its kind, straight from the server: only ever on a worker."""
+
+    from ctypes import wintypes
+
+    class ShareInfo(ctypes.Structure):
+        _fields_ = [("netname", wintypes.LPWSTR), ("type", wintypes.DWORD), ("remark", wintypes.LPWSTR)]
+
+    api = ctypes.WinDLL("netapi32")
+    enumerate = api.NetShareEnum
+    enumerate.argtypes = [wintypes.LPWSTR, wintypes.DWORD, ctypes.POINTER(ctypes.c_void_p), wintypes.DWORD,
+                          ctypes.POINTER(wintypes.DWORD), ctypes.POINTER(wintypes.DWORD), ctypes.POINTER(wintypes.DWORD)]
+    enumerate.restype = wintypes.DWORD
+    buffer, read, total, resume = ctypes.c_void_p(), wintypes.DWORD(), wintypes.DWORD(), wintypes.DWORD(0)
+    status = enumerate(server, 1, ctypes.byref(buffer), 0xFFFFFFFF, ctypes.byref(read), ctypes.byref(total),
+                       ctypes.byref(resume))
+    if status != 0:
+        raise ctypes.WinError(status)  # A server not there is a FileNotFoundError, as a missing folder is.
+    try:
+        shares = ctypes.cast(buffer, ctypes.POINTER(ShareInfo * read.value)).contents
+        return [(share.netname, share.type) for share in shares]
+    finally:
+        api.NetApiBufferFree(buffer)
+
+
+def list_shares(server: str) -> list[str]:
+    """The folders a server shares, as Explorer lists them at \\\\server: disk shares, none ending in $.
+
+    Asks the server, so only ever on a worker; one that is asleep or not there takes seconds to say.
+    """
+
+    return sorted((name for name, kind in enumerate_shares(server)
+                   if kind & 0x0FFFFFFF == 0 and not kind & STYPE_SPECIAL and not name.endswith("$")),
+                  key=str.casefold)
+
+
 def quiet_drive_errors():
     """Have this thread's reads of an empty drive fail, rather than raise an "insert a disk" dialog.
 

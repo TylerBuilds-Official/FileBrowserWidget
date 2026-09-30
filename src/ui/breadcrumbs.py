@@ -5,7 +5,7 @@ from PyQt6.QtCore import Qt, QEvent, pyqtSignal
 from PyQt6.QtGui import QCursor, QPalette
 from PyQt6.QtWidgets import QLabel, QMenu, QSizePolicy
 
-from src.utils import window_effects
+from src.utils import locations, window_effects
 
 
 class Breadcrumbs(QLabel):
@@ -28,14 +28,29 @@ class Breadcrumbs(QLabel):
     def set_name(self, name):
         path = Path(name)
         self.paths = list(reversed(path.parents)) + [path]
+        server = locations.server_root(path)
+        if server is not None:
+            self.paths.insert(0, server)  # A share sits under its server, whose shares the panel lists.
         self.setToolTip(name)
         self.setAccessibleName("Folder path: " + name)
         self.update_links()
 
+    @staticmethod
+    def label(path: Path) -> str:
+        """A crumb's word: the name, a drive's root as it is, a server or a share by its name alone."""
+
+        if path.name:
+            return path.name
+        drive = path.drive.rstrip("\\")
+        if drive.startswith("\\\\"):
+            return drive.rpartition("\\")[2]  # \\server -> server, \\server\share -> share
+
+        return str(path)
+
     def update_links(self):
         if not self.paths:
             return
-        labels = [path.name or str(path) for path in self.paths]
+        labels = [self.label(path) for path in self.paths]
         metrics = self.fontMetrics()
         start = 0
         while start < len(labels) - 1:
@@ -74,7 +89,7 @@ class Breadcrumbs(QLabel):
         if target == "more":
             menu = QMenu(self)
             for path in self.hidden_paths:
-                action = menu.addAction(path.name or str(path))
+                action = menu.addAction(self.label(path))
                 action.setToolTip(str(path))
                 action.triggered.connect(lambda checked=False, path=path: self.folder_clicked.emit(path))
             window_effects.style_window(menu)
