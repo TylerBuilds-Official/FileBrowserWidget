@@ -7,10 +7,12 @@ from uuid import uuid4
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import QPoint, Qt
+from PyQt6.QtCore import QEvent, QPoint, QPointF, Qt
+from PyQt6.QtGui import QMouseEvent
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication
 
+from src.ui.custom_widgets.file_row_widget import FileRowWidget
 from src.ui.file_browser import FileBrowser
 from src.utils.locations import typed_path
 from support import drain_workers, settle
@@ -150,6 +152,50 @@ class AddressBarTests(unittest.TestCase):
     def test_clicking_away_puts_the_crumbs_back(self):
         self.browser.edit_address()
         self.browser.settings_button.setFocus()
+        self.assertFalse(self.edit.isVisible())
+        self.assertTrue(self.browser.path_label.isVisible())
+
+    def row_for(self, path):
+        layout = self.browser.file_list_layout
+        for i in range(layout.count()):
+            row = layout.itemAt(i).widget()
+            if isinstance(row, FileRowWidget) and row.path == path:
+                return row
+        self.fail(f"No row for {path}")
+
+    def test_clicking_a_row_drops_the_address_and_shows_the_crumbs(self):
+        # Rows never take keyboard focus on a click, so the edit's own focus-out never fires here.
+        self.browser.edit_address()
+        self.assertTrue(self.edit.isVisible())
+        QTest.mouseClick(self.row_for(self.folder), Qt.MouseButton.LeftButton, pos=QPoint(8, 8))
+        drain_workers()
+        settle(self.browser)
+        self.assertFalse(self.edit.isVisible())
+        self.assertTrue(self.browser.path_label.isVisible())
+        self.assertEqual(self.browser.current_folder, self.folder)  # And the click still opened the folder.
+
+    def test_a_row_press_itself_asks_the_address_to_close(self):
+        # In the real Popup panel a click on a child need not move focus off the line edit, so the
+        # edit's own focus-out cannot be relied on; the press on a row must ask it to close directly.
+        # close_address is patched so only that direct ask counts, not the focus-out signal bound to
+        # the original at construction.
+        self.browser.edit_address()
+        row = self.row_for(self.folder)
+        with patch.object(self.browser, "close_address") as close:
+            press = QMouseEvent(QEvent.Type.MouseButtonPress, QPointF(8, 8),
+                                QPointF(row.mapToGlobal(QPoint(8, 8))),
+                                Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton,
+                                Qt.KeyboardModifier.NoModifier)
+            QApplication.sendEvent(row, press)
+            close.assert_called()
+
+    def test_pressing_the_panel_surface_drops_the_address(self):
+        self.browser.edit_address()
+        self.assertTrue(self.edit.isVisible())
+        press = QMouseEvent(QEvent.Type.MouseButtonPress, QPointF(5, 5),
+                            QPointF(self.browser.mapToGlobal(QPoint(5, 5))),
+                            Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
+        self.browser.mousePressEvent(press)
         self.assertFalse(self.edit.isVisible())
         self.assertTrue(self.browser.path_label.isVisible())
 

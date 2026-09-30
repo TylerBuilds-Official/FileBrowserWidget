@@ -129,6 +129,9 @@ class KeyboardHandler(QObject):
         return not self.browser.settings_modal.isVisible()
 
     def eventFilter(self, watched, event):
+        if event.type() == QEvent.Type.MouseButtonPress and isinstance(watched, FileRowWidget):
+            # A click on a row is a click away from the address bar, which rows never take focus for.
+            self.browser.close_address()
         if event.type() == QEvent.Type.KeyPress and isinstance(watched, FileRowWidget):
             if event.modifiers() == Qt.KeyboardModifier.NoModifier and event.key() in (
                 Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space,
