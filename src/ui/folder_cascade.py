@@ -3,7 +3,7 @@ from time import monotonic
 
 from PyQt6 import sip
 from PyQt6.QtCore import QEvent, QObject, QPoint, QPointF, Qt, QTimer
-from PyQt6.QtGui import QCursor, QIcon, QIconEngine, QMouseEvent, QPixmap, QWheelEvent
+from PyQt6.QtGui import QCursor, QIcon, QIconEngine, QMouseEvent, QPixmap, QPolygonF, QWheelEvent
 from PyQt6.QtWidgets import QApplication, QStyle
 
 from src.ui.custom_widgets.cascade_menu import CascadeMenu
@@ -68,6 +68,12 @@ class FolderCascade(QObject):
     it cancels a pending level, closes an open one, and asks for a real move before the
     pointer can rest again, and a wheel over the panel scrolls the list rather than the menu.
 
+    Leaving the row a level fanned out from closes the level at once, as the row's highlight
+    goes: only the level's start waits the menu delay, never its end. The one exception is a
+    pointer heading for the level, which crosses the rows beneath on its way to a lower item:
+    a move aimed at the level's near edge keeps it and lights none of the rows passed, and a
+    pointer that stops on the way is, after a moment, resting on whatever is under it.
+
     Nothing here touches the disk or the shell on the UI thread. Folders are read by the
     thread executor as soon as the pointer rests on their row or item, so a level is usually
     ready before it is due; one that is not shows "Loading…" until its items arrive. Icons
@@ -81,6 +87,7 @@ class FolderCascade(QObject):
     PREFETCH_MS = 80
     LISTING_SECONDS = 5
     LISTING_LIMIT = 200
+    SLOPPY_SLACK = 24  # Pixels above and below the level that a move toward it may aim at.
 
     def __init__(self, browser):
         super().__init__(browser)
@@ -94,17 +101,26 @@ class FolderCascade(QObject):
         self._hover_row = None
         self._keyboard = False
         self._pointer = None
+        self._sloppy_from = None  # Where the pointer was at its last move with a level open.
         self._scrolled_at = None
         self._generation = 0
         self._listings = {}
         self._in_flight = set()
         self._waiting = {}
 
-        delay = QApplication.style().styleHint(QStyle.StyleHint.SH_Menu_SubMenuPopupDelay)
+        style = QApplication.style()
+        delay = style.styleHint(QStyle.StyleHint.SH_Menu_SubMenuPopupDelay)
         self.timer = QTimer(self)
         self.timer.setSingleShot(True)
         self.timer.setInterval(delay if delay > 0 else 400)
         self.timer.timeout.connect(self._hover_settled)
+
+        # A pointer heading for the level gets this long to arrive before it counts as resting.
+        linger = style.styleHint(QStyle.StyleHint.SH_Menu_SubMenuSloppyCloseTimeout)
+        self.sloppy_timer = QTimer(self)
+        self.sloppy_timer.setSingleShot(True)
+        self.sloppy_timer.setInterval(linger if linger > 0 else 400)
+        self.sloppy_timer.timeout.connect(self._sloppy_timeout)
 
         # Sweeping down the list should not read every folder passed; a short rest earns a read.
         self.prefetch_timer = QTimer(self)
@@ -190,9 +206,62 @@ class FolderCascade(QObject):
             self.fit_menu_heights()
 
     def pointer_moved(self, global_position: QPoint):
-        """The open menu owns the pointer, so the rows hear about it from here."""
+        """The open menu owns the pointer, so the rows hear about it from here.
 
-        self._set_hover_row(None if self.contains(global_position) else self.row_at(global_position))
+        Off the row the level came from, the level closes at once unless the move is aimed at
+        the level itself; a level opened from the keyboard is left to the rest timer as before.
+        """
+
+        if global_position == self._sloppy_from:
+            return  # Qt speaking for a still pointer.
+        came_from, self._sloppy_from = self._sloppy_from, global_position
+        if self.contains(global_position):
+            self.sloppy_timer.stop()
+            self._set_hover_row(None)
+            return
+        row = self.row_at(global_position)
+        if self._keyboard or row is self._source_row or not self.is_open():
+            self.sloppy_timer.stop()
+            self._set_hover_row(row)
+            return
+        if came_from is None:
+            # The first move since the level opened: the pointer was resting on the row before.
+            came_from = self._pointer if self._pointer is not None else self.row_centre(self._source_row)
+        if self.heading_for_menu(came_from, global_position):
+            self.sloppy_timer.start()
+            self._set_hover_row(None)  # The rows crossed on the way are not rested on.
+            return
+        self.sloppy_timer.stop()
+        self.close()
+        self._set_hover_row(row)
+
+    @staticmethod
+    def row_centre(row: FileRowWidget) -> QPoint:
+        return row.mapToGlobal(row.rect().center())
+
+    def heading_for_menu(self, came_from: QPoint, position: QPoint) -> bool:
+        """Whether a move aims at the top level: inside the triangle from where the pointer was
+        to the ends of the level's near edge, with a little slack above and below it."""
+
+        menu = self._menu
+        if menu is None or sip.isdeleted(menu) or not menu.isVisible():
+            return False
+        frame = menu.geometry()
+        edge = frame.right() if self.leftward else frame.left()
+        cone = QPolygonF([QPointF(came_from), QPointF(edge, frame.top() - self.SLOPPY_SLACK),
+                          QPointF(edge, frame.bottom() + self.SLOPPY_SLACK)])
+
+        return cone.containsPoint(QPointF(position), Qt.FillRule.WindingFill)
+
+    def _sloppy_timeout(self):
+        """The pointer stopped short of the level: it is resting on whatever is under it, and a
+        folder there has waited long enough to fan out at once."""
+
+        row = self.row_at(self._sloppy_from) if self._sloppy_from is not None else None
+        self.close()
+        self._set_hover_row(row)
+        if row is not None and row.is_folder:
+            self.open_for(row)
 
     def row_at(self, global_position: QPoint) -> FileRowWidget | None:
         browser = self.browser
@@ -568,6 +637,8 @@ class FolderCascade(QObject):
         menu, self._menu = self._menu, None
         self._menus = []
         self._waiting = {}
+        self._sloppy_from = None
+        self.sloppy_timer.stop()
         self._generation += 1  # Icon reads still on their way land nowhere.
         row, self._source_row = self._source_row, None
         if row is not None and not sip.isdeleted(row):

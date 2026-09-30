@@ -2,7 +2,7 @@
 
 ## 0.1.3 — 2026-09-30
 
-- With a cascade open, the next row lights the moment the pointer reaches it, and the row it left goes out. Qt hands every mouse event to the open menu, so the rows heard nothing until their own level opened; the cascade tells them now, and a row no longer stays lit after the pointer has gone.
+- With a cascade open, the next row lights the moment the pointer reaches it, and the row it left goes out at once, level and all. Qt hands every mouse event to the open menu, so the rows heard nothing until their own level opened; the cascade tells them now. Leaving the row for another row, a file, or the header closes its level immediately instead of when the next level was due, so only the start of a cascade waits the menu delay, never its end. A move aimed at the level itself keeps it, since reaching a lower item crosses the rows beneath.
 - A level's icons no longer make the menu size and repaint itself once per icon as they land. A level of a few hundred items held the UI thread for over a second after it opened, and the next row's hover waited on that; the items paint their icons from the cache instead, and only the rows that got one are painted again.
 - The list is laid out once when it is built rather than once per row, and a render that changes nothing no longer lays every row out twice and elides every name again. A 350-item folder opens in about a quarter of the time; a refresh of an unchanged folder costs next to nothing.
 - Rows no longer put every event through two Python filters: Enter, Space, a press, and a hidden row tell the panel directly.

@@ -120,8 +120,11 @@ arrows then move through the menu, and **Left** at its first level hands the key
 The menu opens after the Windows menu delay, and only pointer movement counts as resting, so a folder
 that lands under a still pointer after a scroll or a click does not fan out. Scrolling the list cancels a
 pending menu, closes an open one, and asks for a real move before resting counts again, and a wheel over
-the panel while a menu is open scrolls the list rather than the menu. Resting on another folder row moves
-the cascade there, resting on a file row closes it, and a click on any row reaches the row.
+the panel while a menu is open scrolls the list rather than the menu. Leaving the row closes its level
+at once, as the row's highlight goes: only a level's start waits the delay, never its end. Resting on
+another folder row then opens that one, and a click on any row reaches the row. A move aimed at the
+level keeps it while the pointer crosses the rows beneath on its way to a lower item; a pointer that
+stops on the way is resting on whatever is under it, and a folder there fans out at once.
 Nothing in the cascade waits on the disk or the shell on the UI thread. A folder is read on a worker
 through the thread executor as soon as the pointer rests on its row or item, so a level is usually
 ready before it is due to open; a slow folder shows **Loading…** until its items arrive. Icons are read

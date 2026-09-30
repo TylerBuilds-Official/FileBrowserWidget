@@ -11,7 +11,7 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtCore import QEvent, QPoint, QPointF, QSettings, Qt
-from PyQt6.QtGui import QHelpEvent, QWheelEvent
+from PyQt6.QtGui import QCursor, QHelpEvent, QWheelEvent
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication, QStyle, QToolTip
 
@@ -82,11 +82,15 @@ class FolderCascadeTests(unittest.TestCase):
         self.addCleanup(self.browser.hide)
         self.browser.create_list_items(self.root)
         settle(self.browser)
+        # The cursor stays where the last test left it, which may be over a row of this panel too:
+        # shown under it, the row would be lit before the test moved anything.
+        QCursor.setPos(QPoint(0, 0))
         self.browser.show()
         self.app.processEvents()
         self.cascade = self.browser.cascade
         self.cascade.timer.setInterval(30)
         self.cascade.prefetch_timer.setInterval(10)
+        self.cascade.sloppy_timer.setInterval(40)
 
     def remove_fixture(self):
         self.settings.sync()
@@ -279,7 +283,7 @@ class FolderCascadeTests(unittest.TestCase):
         first = self.open_menu()
         other = self.row_for(self.other)
         self.cascade.pointer_moved(other.mapToGlobal(QPoint(8, 8)))
-        self.assertTrue(self.cascade.is_open())
+        self.assertFalse(self.cascade.is_open())  # Gone with the row it came from; the next waits its delay.
         self.settle()
         second = self.open_menu()
         self.assertIsNot(first, second)
@@ -438,21 +442,109 @@ class FolderCascadeTests(unittest.TestCase):
 
     def test_while_a_level_is_open_the_row_under_the_pointer_lights_at_once(self):
         # A popup takes every mouse event, so the rows hear no Enter or Leave from Qt while a level
-        # is open: the cascade tells them instead, so the next row lights before its own level is
-        # due, and the row the pointer left is not lit for good.
+        # is open: the cascade tells them instead.
         row = self.row_for(self.folder)
         self.hover(row)
         self.assertEqual(row.property("hovered"), "true")  # Qt's own Enter, with no level open.
         self.settle()
         menu = self.open_menu()
-        other = self.row_for(self.other)
-        self.cascade.pointer_moved(other.mapToGlobal(QPoint(8, 8)))
-        self.assertEqual(other.property("hovered"), "true")
-        self.assertEqual(row.property("hovered"), "false")
-        self.assertEqual(row.property("cascaded"), "true")  # Its level is still up: lit as an open menu's title is.
-        self.assertTrue(self.cascade.timer.isActive())  # The level itself still waits for the rest.
         self.cascade.pointer_moved(menu.mapToGlobal(QPoint(8, 8)))  # Into the level.
+        self.assertEqual(row.property("hovered"), "false")
+        self.assertEqual(row.property("cascaded"), "true")  # Lit as an open menu's title is, while its level is up.
+        self.cascade.pointer_moved(row.mapToGlobal(QPoint(8, 8)))  # And back.
+        self.assertEqual(row.property("hovered"), "true")
+        self.assertTrue(self.cascade.is_open())
+        self.assertFalse(self.cascade.timer.isActive())  # Its own row: nothing new to open.
+
+    def test_leaving_the_row_ends_its_level_at_once_and_only_the_next_row_is_lit(self):
+        # The level's end used to wait on the menu delay as its start does: the row the pointer had
+        # left stayed lit, level and all, until the next level was due. A pointer that has left a
+        # row is done with it. Only the row it is on now is lit, and that row's own level waits.
+        row = self.row_for(self.folder)
+        self.hover(row)
+        self.settle()
+        self.open_menu()
+        other = self.row_for(self.other)
+        self.cascade.pointer_moved(other.mapToGlobal(QPoint(8, 8)))  # Straight up the list: not at the level.
+        self.assertFalse(self.cascade.is_open())
+        self.assertEqual(row.property("cascaded"), "false")
+        self.assertEqual(row.property("hovered"), "false")
+        self.assertEqual(other.property("hovered"), "true")
+        self.assertTrue(self.cascade.timer.isActive())
+        self.settle()
+        self.assertIs(self.cascade._source_row, other)
+        self.open_menu()
+        # A file row ends it the same way, and nothing waits to open.
+        below = self.row_for(self.file)
+        self.cascade.pointer_moved(below.mapToGlobal(QPoint(8, 8)))
+        self.assertFalse(self.cascade.is_open())
+        self.assertEqual(other.property("cascaded"), "false")
+        self.assertEqual(below.property("hovered"), "true")
+        self.assertFalse(self.cascade.timer.isActive())
+        # So does the header above the list.
+        self.hover(other)
+        self.settle()
+        self.open_menu()
+        self.cascade.pointer_moved(self.browser.title_label.mapToGlobal(QPoint(4, 4)))
+        self.assertFalse(self.cascade.is_open())
         self.assertEqual(other.property("hovered"), "false")
+
+    def path_toward(self, menu, row, steps):
+        """Points from the row's centre to a low point on the level's near edge, in order."""
+
+        frame = menu.geometry()
+        start = row.mapToGlobal(row.rect().center())
+        target = QPoint(frame.left(), frame.bottom() - 10)
+        self.assertGreater(frame.left(), start.x())  # The level fans out to the right of this panel.
+        return [QPoint(start.x() + (target.x() - start.x()) * step // steps,
+                       start.y() + (target.y() - start.y()) * step // steps) for step in range(1, steps)]
+
+    def test_heading_for_the_level_keeps_it_across_the_rows_on_the_way(self):
+        # From the row to a lower item of its level the pointer crosses the rows beneath. A move
+        # aimed at the level's edge is not a rest on them, and lights none of them.
+        for index in range(6):
+            (self.folder / f"note-{index}.txt").write_text("x", encoding="utf-8")  # A level that reaches down.
+        row = self.row_for(self.folder)
+        below = self.row_for(self.file)
+        self.hover(row)
+        self.settle()
+        menu = self.open_menu()
+        crossed = False
+        for point in self.path_toward(menu, row, 5):
+            self.cascade.pointer_moved(point)
+            crossed = crossed or self.cascade.row_at(point) is below
+            self.assertTrue(self.cascade.is_open(), point)
+            self.assertNotEqual(below.property("hovered"), "true")
+        self.assertTrue(crossed)
+        self.assertTrue(self.cascade.sloppy_timer.isActive())
+        self.cascade.pointer_moved(menu.mapToGlobal(QPoint(8, 8)))  # Arrived.
+        self.assertTrue(self.cascade.is_open())
+        self.assertFalse(self.cascade.sloppy_timer.isActive())
+        self.assertEqual(row.property("cascaded"), "true")
+
+    def test_stopping_on_the_way_to_the_level_is_resting_on_the_row_under_the_pointer(self):
+        # A pointer that stops short of the level is resting after all: a folder row there has
+        # waited long enough and fans out at once, in place of the level it never reached.
+        for index in range(6):
+            (self.other / f"photo-{index}.jpg").write_bytes(b"")  # Photos' level reaches down past Projects.
+        photos = self.row_for(self.other)
+        projects = self.row_for(self.folder)
+        self.hover(photos)
+        self.settle()
+        menu = self.open_menu()
+        stopped = None
+        for point in self.path_toward(menu, photos, 10):
+            self.cascade.pointer_moved(point)
+            self.assertTrue(self.cascade.is_open(), point)
+            if self.cascade.row_at(point) is projects:
+                stopped = point
+                break
+        self.assertIsNotNone(stopped)
+        self.assertNotEqual(projects.property("hovered"), "true")
+        self.wait_for(lambda: self.cascade._source_row is projects)
+        self.assertEqual(photos.property("cascaded"), "false")
+        self.assertEqual(projects.property("hovered"), "true")
+        self.assertEqual([action.text() for action in self.open_menu().actions()][0], "Archive")
 
     def test_icons_are_read_off_the_ui_thread_and_cached(self):
         threads = []
