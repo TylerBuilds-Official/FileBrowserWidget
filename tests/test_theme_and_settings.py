@@ -103,9 +103,11 @@ class ThemeAndSettingsTests(unittest.TestCase):
 
     def test_all_preferences_restore(self):
         modal = SettingsModal(settings=self.settings)
+        self.assertTrue(modal.favorites_on_top)  # On unless switched off.
         modal.theme_combo.setCurrentIndex(modal.theme_combo.findData("dark"))
         modal.docking_combo.setCurrentIndex(modal.docking_combo.findData("top_left"))
         modal.extensions_check.setChecked(True)
+        modal.favorites_check.setChecked(False)
         modal.sort_combo.setCurrentIndex(modal.sort_combo.findData("type"))
         modal.hover_combo.setCurrentIndex(modal.hover_combo.findData("cascade"))
         modal.start_combo.setCurrentIndex(modal.start_combo.findData("last"))
@@ -115,6 +117,7 @@ class ThemeAndSettingsTests(unittest.TestCase):
         self.assertEqual(restored.theme_mode, "dark")
         self.assertEqual(restored.docking_position, "top_left")
         self.assertTrue(restored.show_extensions)
+        self.assertFalse(restored.favorites_on_top)
         self.assertEqual(restored.default_sort, "type")
         self.assertEqual(restored.hover_behavior, "cascade")
         self.assertTrue(restored.reopen_last)

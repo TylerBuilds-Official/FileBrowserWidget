@@ -1,5 +1,6 @@
 import os
 import shutil
+import threading
 import unittest
 from pathlib import Path
 from uuid import uuid4
@@ -34,13 +35,75 @@ class FavoritesTests(unittest.TestCase):
         self.browser = FileBrowser(settings=self.settings)
         self.addCleanup(self.browser.deleteLater)
         self.addCleanup(self.browser.hide)
+        self.browser.desktop_folder = self.root  # The folder the panel opens on, where favorites lead.
         self.browser.create_list_items(self.root)
         settle(self.browser)
 
     def remove_fixture(self):
+        drain_workers()
         self.settings.sync()
         assert self.root.resolve().parent == Path(__file__).resolve().parent
         shutil.rmtree(self.root)
+
+    def names(self):
+        layout = self.browser.file_list_layout
+        return [layout.itemAt(i).widget().path.name for i in range(layout.count())
+                if layout.itemAt(i).widget().path.suffix != ".ini"]  # The fixture's own settings file.
+
+    def test_favorites_from_anywhere_lead_the_start_folder_and_only_there(self):
+        # In the folder the panel opens on, every favorite heads the list, wherever it lives, in the
+        # order it was starred. Drilled into any other folder the list keeps its order, as it does
+        # everywhere with the setting off. Favorites elsewhere are described on a worker: one on a
+        # share that is asleep must not hold the start folder.
+        elsewhere = self.root.parent / f".favorites-elsewhere-{uuid4().hex}"
+        elsewhere.mkdir()
+        self.addCleanup(shutil.rmtree, elsewhere)
+        kept = elsewhere / "Kept.txt"
+        kept.write_text("x", encoding="utf-8")
+        gone = elsewhere / "Gone.txt"
+        for path in (gone, kept, self.last):
+            self.browser.favorites.toggle(str(path))
+        threads = []
+        original = Path.stat
+
+        def stat(path, *args, **kwargs):
+            if path == kept:
+                threads.append(threading.get_ident())
+            return original(path, *args, **kwargs)
+
+        with patch.object(Path, "stat", stat):
+            self.browser.create_list_items(self.root)
+            settle(self.browser)
+            drain_workers()
+        self.app.processEvents()
+        self.assertEqual(self.names(), ["Kept.txt", "Zebra.txt", "Alpha.txt"])  # Gone is left to the menu.
+        self.assertTrue(threads)
+        self.assertNotIn(threading.get_ident(), threads)
+        self.assertIs(self.browser.listed_as_folder(kept), False)  # Listed, so it opens without a look-up.
+        child = self.root / "Child"
+        child.mkdir()
+        (child / "Beta.txt").touch()
+        (child / "Zulu.txt").touch()
+        self.browser.favorites.toggle(str(child / "Zulu.txt"))
+        self.browser.navigate_to(child)
+        settle(self.browser)
+        drain_workers()
+        self.assertEqual(self.names(), ["Beta.txt", "Zulu.txt"])  # Starred, but drilled in: its own place.
+        self.browser.go_back()
+        settle(self.browser)
+        drain_workers()
+        self.app.processEvents()
+        self.assertEqual(self.names(), ["Kept.txt", "Zebra.txt", "Zulu.txt", "Alpha.txt", "Child"])
+        modal = self.browser.settings_modal
+        modal.favorites_check.setChecked(False)
+        self.assertEqual(self.names(), ["Alpha.txt", "Child", "Zebra.txt"])
+        self.assertFalse(self.settings.value("files/favorites_on_top", type=bool))
+        modal.favorites_check.setChecked(True)
+        drain_workers()
+        self.app.processEvents()
+        self.assertEqual(self.names(), ["Kept.txt", "Zebra.txt", "Zulu.txt", "Alpha.txt", "Child"])
+        self.browser.toggle_favorite(kept)  # Unstarred, a favorite from elsewhere leaves the list.
+        self.assertEqual(self.names(), ["Zebra.txt", "Zulu.txt", "Alpha.txt", "Child"])
 
     def test_star_pins_without_opening_and_persists(self):
         opened = []

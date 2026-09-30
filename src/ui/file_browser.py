@@ -109,6 +109,10 @@ class FileBrowser(QWidget):
         self._drive_icons = {}
         self._location_icons = {}
         self._drive_space = None  # (free, total) of the drive whose root is shown, once read.
+        # Favorites kept in other folders, described on a worker: they lead the list of the folder
+        # the panel opens on, and nowhere else.
+        self._pinned = []
+        self._pinned_generation = 0
 
         # Folders are read on a worker; the newest request owns the panel and older ones are dropped.
         self._scan_generation = 0
@@ -257,6 +261,7 @@ class FileBrowser(QWidget):
         self.cascade.set_behavior(self.settings_modal.hover_behavior)
         self.settings_modal.hover_behavior_changed.connect(self.cascade.set_behavior)
         self.settings_modal.default_sort_changed.connect(self.set_sort)
+        self.settings_modal.favorites_on_top_changed.connect(self.favorites_on_top_changed)
         # Rebuilding the list on every keystroke is too slow in a large folder.
         self.search_edit.textChanged.connect(self.search_timer.start)
         self.filter_combo.currentIndexChanged.connect(self.apply_filters)
@@ -629,6 +634,12 @@ class FileBrowser(QWidget):
         self.show_location(folder)
         self.watch_folder()
         self.read_drive_space(folder)
+        if not rescan:
+            self._pinned = []  # Another folder's; this one's favorites, if it is the start, are read below.
+        if self.favorites_lead():
+            self.read_pinned(folder)
+        else:
+            self._pinned = []
         if not rescan and self.preferences is not None and self.settings_modal.reopen_last:
             self.preferences.setValue("files/last_folder", str(folder))
         if force:
@@ -682,7 +693,8 @@ class FileBrowser(QWidget):
         self.update_filter_button()
         entries = visible_entries(self.entries, self.search_edit.text(),
                                   self.filter_combo.currentData(), self.sort_combo.currentData())
-        entries.sort(key=lambda entry: not self.favorites.contains(entry.path))
+        if self.favorites_lead():
+            entries = self.favorites_first(entries, self.search_edit.text(), self.filter_combo.currentData())
         files = [entry.path for entry in entries]
         count = len(files)
         text = f"{count} item" + ("" if count == 1 else "s")
@@ -696,7 +708,7 @@ class FileBrowser(QWidget):
         self.status_label.setText(text)
         self.status_label.setToolTip("\n".join(self._scan_errors))
 
-        listed = {entry.path for entry in self.entries}
+        listed = {entry.path for entry in self.entries} | {entry.path for entry in self._pinned}
         state = (self.current_folder, tuple(listed), tuple((entry.path, entry.stamp, entry.error, entry.online_only,
                         self.favorites.contains(entry.path)) for entry in entries),
                  self.settings_modal.show_extensions)
@@ -1036,7 +1048,80 @@ class FileBrowser(QWidget):
 
     def toggle_favorite(self, file):
         self.favorites.toggle(file)
+        self._pinned = [entry for entry in self._pinned if self.favorites.contains(entry.path)]
+        if (self.favorites_lead() and self.favorites.contains(file)
+                and Path(file) not in {entry.path for entry in self.entries}):
+            self.read_pinned(self.current_folder)  # Starred from a cascade level or a menu: not listed here yet.
         self.render_entries(self.scroll_area.verticalScrollBar().value())
+
+    def favorites_lead(self) -> bool:
+        """Whether favorites head the list: only in the folder the panel opens on, and only when asked to."""
+
+        return self.settings_modal.favorites_on_top and self.current_folder == self.start_folder()
+
+    def favorites_on_top_changed(self, on):
+        if on and self.current_folder == self.start_folder():
+            self.read_pinned(self.current_folder)
+        else:
+            self._pinned = []
+        self.render_entries(None)
+
+    def favorites_first(self, entries, query, kind):
+        """The favorites, in the order they were starred and wherever they live, then the rest."""
+
+        favorites = self.favorites
+        here = {favorites.key(entry.path): entry for entry in entries if favorites.contains(entry.path)}
+        elsewhere = {favorites.key(entry.path): entry for entry in visible_entries(self._pinned, query, kind)}
+        leading = []
+        for path in favorites.files():
+            entry = here.get(favorites.key(path)) or elsewhere.get(favorites.key(path))
+            if entry is not None:
+                leading.append(entry)
+
+        return leading + [entry for entry in entries if not favorites.contains(entry.path)]
+
+    def read_pinned(self, folder):
+        """Describe the favorites kept in other folders on a worker, so one on a share asleep holds
+        nothing here; once they land they lead the list, if the panel is still on that folder."""
+
+        self._pinned_generation += 1
+        generation = self._pinned_generation
+        listed = {entry.path for entry in self.entries}
+        wanted = [path for path in self.favorites.files() if path not in listed]
+        if not wanted:
+            self._pinned = []
+            return
+        cache = dict(self._entry_cache)
+        found = []
+
+        def describe():
+            locations.quiet_drive_errors()
+            for path in wanted:
+                try:
+                    info = path.stat()
+                except OSError:
+                    continue  # Gone, or on a share that is asleep: the Favorites menu still has it.
+                cached = cache.get(path)
+                found.append(cached if cached is not None and cached.stamp == file_stamp(info)
+                             else describe_file(path, info))
+
+        def landed(*_):
+            if sip.isdeleted(self) or generation != self._pinned_generation or self.current_folder != folder:
+                return
+            self._pinned = found
+            self._entry_cache.update({entry.path: entry for entry in found})
+            self.render_entries(None)
+
+        def failed(errors):
+            error = errors[-1]
+            if not isinstance(error, OSError):
+                sys.excepthook(type(error), error, error.__traceback__)
+            landed()
+
+        executor = ThreadExecutor(describe, retries=0)
+        executor.success.connect(landed)
+        executor.errors.connect(failed)
+        executor.run_task()
 
     def show_favorites_menu(self):
         menu = QMenu(self)

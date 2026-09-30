@@ -25,6 +25,7 @@ class SettingsModal(QWidget):
     hotkey_changed = pyqtSignal(str)
     hover_behavior_changed = pyqtSignal(str)
     default_sort_changed = pyqtSignal(str)
+    favorites_on_top_changed = pyqtSignal(bool)
     opened = pyqtSignal()
     closed = pyqtSignal()
 
@@ -101,6 +102,13 @@ class SettingsModal(QWidget):
             self.extensions_check.setChecked(settings.value("files/show_extensions", False, type=bool))
         self._card(settings_layout, "Show file extensions", "Include endings such as .txt and .pdf.",
                    self.extensions_check)
+        self.favorites_check = QCheckBox()
+        self.favorites_check.setObjectName("settingsFavoritesCheck")
+        self.favorites_check.setAccessibleName("Show favorites at the top")
+        self.favorites_check.setChecked(settings.value("files/favorites_on_top", True, type=bool)
+                                        if settings is not None else True)
+        self._card(settings_layout, "Show favorites at the top",
+                   "Your favorites lead the list in the folder the panel opens on.", self.favorites_check)
         self.sort_combo = SmoothComboBox()
         self.sort_combo.setObjectName("settingsSortCombo")
         self.sort_combo.setAccessibleName("Default sort")
@@ -196,6 +204,7 @@ class SettingsModal(QWidget):
         self.theme_combo.currentIndexChanged.connect(self._theme_changed)
         self.docking_combo.currentIndexChanged.connect(self.emit_docking_position_changed)
         self.extensions_check.stateChanged.connect(self.emit_refresh)
+        self.favorites_check.toggled.connect(self._favorites_changed)
         self.sort_combo.currentIndexChanged.connect(self._sort_changed)
         self.hover_combo.currentIndexChanged.connect(self._hover_changed)
         self.start_combo.currentIndexChanged.connect(lambda: self._save("files/start_in", self.start_in))
@@ -414,6 +423,10 @@ class SettingsModal(QWidget):
         self._save("window/docking", self.docking_position)
         self.docking_position_changed.emit()
 
+    def _favorites_changed(self, on):
+        self._save("files/favorites_on_top", on)
+        self.favorites_on_top_changed.emit(on)
+
     def _sort_changed(self):
         self._save("files/sort", self.default_sort)
         self.default_sort_changed.emit(self.default_sort)
@@ -437,6 +450,11 @@ class SettingsModal(QWidget):
     @property
     def show_extensions(self):
         return self.extensions_check.isChecked()
+
+    @property
+    def favorites_on_top(self) -> bool:
+        """Whether favorites lead the list in the folder the panel opens on."""
+        return self.favorites_check.isChecked()
 
     @property
     def default_sort(self) -> str:

@@ -143,7 +143,7 @@ in behind the open menu the way the panel's rows do.
 
 ## Favorites and navigation
 
-Click a row's star or right-click **Add to favorites**. Favorites are remembered and pinned above other matching items in their folder. The **Favorites** menu opens saved files and folders from anywhere and includes a removal menu for moved or deleted items.
+Click a row's star or right-click **Add to favorites**. Favorites are remembered. With **Settings → Show favorites at the top**, on by default, they lead the list in the folder the panel opens on, wherever they live and in the order they were starred; drilled into any other folder the list keeps its order. Favorites kept elsewhere are described on a worker, so one on a share that is asleep never holds the start folder, and one that has gone is left to the menu. The **Favorites** menu opens saved files and folders from anywhere and includes a removal menu for moved or deleted items.
 
 Click breadcrumb segments to navigate to ancestors; **…** opens earlier segments when the path is too long. **Desktop** or **Alt+Home** returns to the Windows Desktop location, including redirected desktops. Opening the panel starts at the Desktop, the way the shell's own chevron menus do, and history is dropped with it. **Settings → Start in** can make that Downloads, Documents, or a drive instead, any folder of your own through the folder button beside the box, or **Where I left off**, which brings the panel back to the last folder with its history, across restarts too. Alt+Left/Right, mouse side buttons, and Backspace navigate history; Alt+Up opens the parent, and at a share's root the server, whose shares it lists. Back/Forward restore scroll positions. F5 or Ctrl+R refreshes.
 
