@@ -148,6 +148,62 @@ class ThemeAndSettingsTests(unittest.TestCase):
         self.assertEqual(modal.start_combo.currentText(), "Q: drive")
         self.assertEqual(modal.start_combo.itemData(modal.start_combo.count() - 1), "last")
 
+    def test_start_in_can_be_a_folder_of_your_own(self):
+        # Choose… opens the folder dialog. The panel is a popup, and a dialog over a popup closes it
+        # and goes with it, so the panel steps aside for the dialog and comes back with Settings open.
+        folder = Path(__file__).resolve().parent
+        browser = FileBrowser(settings=self.settings)
+        browser.resize(400, 640)
+        browser.show()
+        self.addCleanup(browser.deleteLater)
+        self.addCleanup(browser.hide)
+        self.app.processEvents()
+        browser.show_settings_modal()
+        modal = browser.settings_modal
+        seen = []
+
+        def dialog(parent, title, start):
+            seen.append((parent, browser.isVisible(), modal.isVisible(), start))
+            return str(folder)
+
+        with patch("src.ui.settings.settings_modal.QFileDialog.getExistingDirectory", dialog):
+            modal.start_browse.click()
+        self.assertEqual(seen, [(None, False, False, str(Path.home()))])
+        self.assertTrue(browser.isVisible())
+        self.assertTrue(modal.isVisible())
+        self.assertEqual(modal.start_in, str(folder))
+        self.assertEqual(modal.start_combo.currentText(), folder.name)
+        self.assertEqual(modal.start_combo.itemData(modal.start_combo.count() - 1), "last")
+        self.assertEqual(browser.start_folder(), folder)
+        self.settings.sync()
+        restored = SettingsModal(settings=QSettings(self.settings.fileName(), QSettings.Format.IniFormat))
+        self.addCleanup(restored.deleteLater)
+        self.assertEqual(restored.start_in, str(folder))
+        self.assertEqual(restored.start_combo.currentText(), folder.name)
+        # Choosing again takes the place of the last folder chosen; cancelling changes nothing.
+        with patch("src.ui.settings.settings_modal.QFileDialog.getExistingDirectory", return_value=str(folder.parent)):
+            modal.start_browse.click()
+        self.assertEqual(modal.start_in, str(folder.parent))
+        values = [modal.start_combo.itemData(i) for i in range(modal.start_combo.count())]
+        self.assertNotIn(str(folder), values)
+        with patch("src.ui.settings.settings_modal.QFileDialog.getExistingDirectory", return_value=""):
+            modal.start_browse.click()
+        self.assertEqual(modal.start_in, str(folder.parent))
+        self.assertTrue(browser.isVisible())
+        # A named folder or a drive chosen this way is its own entry, not a new one.
+        with patch("src.utils.locations.user_folders", return_value=[("Downloads", folder), ("Documents", folder.parent)]):
+            modal.set_start(folder)
+            self.assertEqual(modal.start_in, "downloads")
+        modal.set_start(browser.desktop_folder)
+        self.assertEqual(modal.start_in, "desktop")
+        drive = Path(folder.drive + "\\")
+        with patch("src.utils.locations.list_drives", return_value=[Drive(drive, "fixed")]):
+            fresh = SettingsModal(settings=self.settings)
+        self.addCleanup(fresh.deleteLater)
+        fresh.set_start(drive)
+        self.assertEqual(fresh.start_in, str(drive))
+        self.assertEqual(fresh.start_combo.currentText(), f"{folder.drive} drive")
+
     def test_slide_over_covers_browser_resizes_and_returns_focus(self):
         browser = FileBrowser()
         browser.resize(400, 640)

@@ -19,6 +19,7 @@ class FluentIconButton(QPushButton):
         "star": "",
         "star-filled": "",
         "this-pc": "",
+        "folder-open": "",
     }
 
     def __init__(self, glyph, label, parent=None):

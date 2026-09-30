@@ -1,9 +1,10 @@
+import os
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, QEvent, QPoint, QPropertyAnimation, QSize, pyqtSignal
-from PyQt6.QtWidgets import (QLabel, QHBoxLayout, QCheckBox,
-                             QComboBox, QVBoxLayout, QWidget, QScrollArea, QKeySequenceEdit, QPushButton)
-from PyQt6.QtGui import QIcon, QKeySequence
+from PyQt6.QtWidgets import (QLabel, QHBoxLayout, QCheckBox, QComboBox, QFileDialog, QVBoxLayout, QWidget,
+                             QScrollArea, QKeySequenceEdit, QPushButton, QSizePolicy)
+from PyQt6.QtGui import QFontMetrics, QIcon, QKeySequence
 
 
 from src.ui import motion
@@ -11,6 +12,7 @@ from src.ui.custom_widgets.fluent_icon_button import FluentIconButton
 from src.ui.smooth_scroll import SmoothScroll, SmoothComboBox
 from src.utils import locations
 from src.utils.assets import asset
+from src.utils.desktop_paths import DesktopPaths
 from src.utils.file_listing import SORT_ORDERS
 from src.version import VERSION
 
@@ -106,8 +108,8 @@ class SettingsModal(QWidget):
             self.sort_combo.addItem(label, value)
         # The same key the Filter flyout once remembered its choice under, so that choice carries over.
         self._restore_combo(self.sort_combo, "files/sort", "name")
-        self._card(settings_layout, "Default sort", "The order a folder opens in. Filter changes it until the panel reopens.",
-                   self.sort_combo)
+        self.sort_combo.setToolTip("Filter can change the order for now; the panel reopens in this one.")
+        self._card(settings_layout, "Default sort", "The order a folder opens in.", self.sort_combo)
         self.hover_combo = SmoothComboBox()
         self.hover_combo.setObjectName("settingsHoverCombo")
         self.hover_combo.setAccessibleName("Folder hover")
@@ -126,7 +128,17 @@ class SettingsModal(QWidget):
                 self.start_combo.addItem(f"{drive.letter} drive", str(drive.root))
         self.start_combo.addItem("Where I left off", "last")
         self._restore_start()
-        self._card(settings_layout, "Start in", "The folder the panel opens on.", self.start_combo)
+        self.start_combo.setSizePolicy(QSizePolicy.Policy.Fixed, self.start_combo.sizePolicy().verticalPolicy())
+        start_controls = QWidget()
+        start_layout = QHBoxLayout(start_controls)
+        start_layout.setContentsMargins(0, 0, 0, 0)
+        start_layout.setSpacing(8)
+        start_layout.addWidget(self.start_combo)
+        # An icon beside the box, as a Browse button: a worded one left the card's wording no room.
+        self.start_browse = FluentIconButton("folder-open", "Choose a folder to start in")
+        self.start_browse.setToolTip("Choose a folder of your own to start in")
+        start_layout.addWidget(self.start_browse)
+        self._card(settings_layout, "Start in", "The folder the panel opens on.", start_controls)
         self._section(settings_layout, "Startup and shortcuts")
         self.startup_check = QCheckBox()
         self.startup_check.setAccessibleName("Start with Windows")
@@ -187,6 +199,7 @@ class SettingsModal(QWidget):
         self.sort_combo.currentIndexChanged.connect(self._sort_changed)
         self.hover_combo.currentIndexChanged.connect(self._hover_changed)
         self.start_combo.currentIndexChanged.connect(lambda: self._save("files/start_in", self.start_in))
+        self.start_browse.clicked.connect(self.choose_start)
         self.startup_check.toggled.connect(self.startup_changed.emit)
         self.hotkey_edit.editingFinished.connect(self._hotkey_edited)
         self.hotkey_reset.clicked.connect(lambda: self.hotkey_changed.emit("Alt+B"))
@@ -231,6 +244,9 @@ class SettingsModal(QWidget):
         card_layout.addLayout(wording, 1)
         if not control.accessibleName():
             control.setAccessibleName(title)
+        if isinstance(control, QComboBox):
+            # Never squeezed below its longest choice: the wording wraps instead.
+            control.setSizePolicy(QSizePolicy.Policy.Fixed, control.sizePolicy().verticalPolicy())
         card_layout.addWidget(control, 0, Qt.AlignmentFlag.AlignVCenter)
         layout.addWidget(card)
 
@@ -247,9 +263,79 @@ class SettingsModal(QWidget):
         reopened = self.settings.value("files/reopen_last", False, type=bool)
         saved = self.settings.value("files/start_in", "last" if reopened else "desktop")
         if self.start_combo.findData(saved) < 0 and Path(saved).is_absolute():
-            # A drive that is not here today, a share away or a disk unplugged, is still the choice.
-            self.start_combo.insertItem(self.start_combo.count() - 1, f"{Path(saved).drive} drive", saved)
+            # A folder of the user's own, or a drive that is not here today, a share away or a disk
+            # unplugged: still the choice.
+            self.add_start_folder(Path(saved))
         self._restore_combo(self.start_combo, "files/start_in", saved)
+
+    def choose_start(self):
+        """Pick a folder of your own to open on.
+
+        The panel steps aside for the dialog: it is a popup, and a dialog over a popup closes it,
+        and goes with it. It comes back with Settings open once the dialog is done.
+        """
+
+        panel = self.parentWidget()
+        if panel is not None:
+            panel.hide()
+        start = self.start_in if Path(self.start_in).is_absolute() else str(Path.home())
+        chosen = QFileDialog.getExistingDirectory(None, "Start in", start)
+        if panel is not None:
+            panel.show()
+            panel.raise_()
+            panel.activateWindow()
+            self.show_settings()
+        if chosen:
+            self.set_start(Path(chosen))
+
+    def set_start(self, folder: Path):
+        """Open on a folder: a named one or a drive by its own entry, any other by an entry of its own."""
+
+        folder = Path(os.path.normpath(folder))
+        index = self.start_combo.findData(self.start_value(folder))
+        if index < 0:
+            index = self.add_start_folder(folder)
+        self.start_combo.setCurrentIndex(index)
+
+    @staticmethod
+    def start_value(folder: Path) -> str:
+        """What Settings keep for a folder: 'desktop', 'downloads', or 'documents' for those, else its path."""
+
+        if folder == DesktopPaths().primary:
+            return "desktop"
+        for name, path in locations.user_folders():
+            if folder == path and name.casefold() in ("downloads", "documents"):
+                return name.casefold()
+
+        return str(folder)
+
+    def add_start_folder(self, folder: Path) -> int:
+        """An entry for a folder of the user's own, in place of the last such, above "Where I left off"."""
+
+        combo = self.start_combo
+        for index in range(combo.count()):
+            if combo.itemData(index, Qt.ItemDataRole.UserRole + 1):
+                combo.removeItem(index)
+                break
+        index = max(0, combo.findData("last"))
+        label = QFontMetrics(combo.font()).elidedText(self.folder_label(folder), Qt.TextElideMode.ElideMiddle, 150)
+        combo.insertItem(index, label, str(folder))
+        combo.setItemData(index, str(folder), Qt.ItemDataRole.ToolTipRole)
+        combo.setItemData(index, True, Qt.ItemDataRole.UserRole + 1)
+
+        return index
+
+    @staticmethod
+    def folder_label(folder: Path) -> str:
+        """A folder by its name; a drive by its letter, a share by its own name."""
+
+        if folder.name:
+            return folder.name
+        drive = folder.drive.rstrip("\\")
+        if drive.startswith("\\\\"):
+            return drive.rpartition("\\")[2]
+
+        return f"{drive} drive"
 
     def _save(self, key, value):
         if self.settings is not None:

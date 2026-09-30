@@ -7,6 +7,7 @@
 - The list is laid out once when it is built rather than once per row, and a render that changes nothing no longer lays every row out twice and elides every name again. A 350-item folder opens in about a quarter of the time; a refresh of an unchanged folder costs next to nothing.
 - Rows no longer put every event through two Python filters: Enter, Space, a press, and a hidden row tell the panel directly.
 - A server typed alone, `\\server`, opens as the folder of its shares, as Explorer shows it, instead of "There is no such file or folder"; the shares are asked of the server on a worker. **Up** from a share goes to its server, and the breadcrumbs show the server before the share.
+- **Start in** gains a folder button beside the box: any folder of your own, picked in the folder dialog. The panel steps aside for the dialog and comes back with Settings open.
 - **Default sort** setting under Files: the order a folder opens in, by name either way, newest first, largest first, or folders first then by type. The sort you had picked in Filter carries over as your default. A sort picked in Filter now lasts until the panel reopens, and the dot on Filter marks a sort other than your default.
 
 ## 0.1.2 — 2026-09-28
