@@ -1,5 +1,5 @@
 from PyQt6.QtCore import QPropertyAnimation, Qt, pyqtProperty
-from PyQt6.QtGui import QPainter, QPixmap
+from PyQt6.QtGui import QPainter, QPalette, QPixmap
 from PyQt6.QtWidgets import QWidget
 
 from src.ui import motion
@@ -8,16 +8,15 @@ from src.ui import motion
 class PageTransition(QWidget):
     """Drill-in and drill-out for the file list, as Windows Settings moves between pages.
 
-    The new page slides in over the old one and fades up. Both are pictures, so the real
-    rows underneath are already final when the picture goes, and the pointer passes through
-    to them throughout.
+    The old page goes at once and the new one slides in over the background and fades up, so
+    the two never overlap and their icons never double. The new page is a picture, so the real
+    rows underneath are already final when it goes, and the pointer passes through to them.
     """
 
     DISTANCE = 24
 
-    def __init__(self, viewport: QWidget, before: QPixmap, after: QPixmap, forward: bool):
+    def __init__(self, viewport: QWidget, after: QPixmap, forward: bool):
         super().__init__(viewport)
-        self.before = before
         self.after = after
         self.direction = 1 if forward else -1
         self._progress = 0.0
@@ -44,17 +43,19 @@ class PageTransition(QWidget):
     progress = pyqtProperty(float, get_progress, set_progress)
 
     def paintEvent(self, event):
+        # The background covers the real new rows, so the new page fades up from it rather than
+        # over the old one; the old page is never drawn, so nothing doubles.
         painter = QPainter(self)
-        painter.drawPixmap(0, 0, self.before)
+        painter.fillRect(self.rect(), self.palette().color(QPalette.ColorRole.Window))
         painter.setOpacity(self._progress)
         painter.drawPixmap(round(self.direction * self.DISTANCE * (1.0 - self._progress)), 0, self.after)
         painter.end()
 
     @classmethod
-    def play(cls, viewport: QWidget, before: QPixmap, forward: bool) -> "PageTransition | None":
-        """Over a viewport whose contents just changed, from a picture taken before the change."""
+    def play(cls, viewport: QWidget, before: object, forward: bool) -> "PageTransition | None":
+        """Over a viewport whose contents just changed. `before` only says there was a page to leave."""
 
         if before is None or motion.duration(motion.NORMAL) == 0 or not viewport.isVisible():
             return None
 
-        return cls(viewport, before, viewport.grab(), forward)
+        return cls(viewport, viewport.grab(), forward)

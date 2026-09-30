@@ -8,7 +8,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6 import sip
 from PyQt6.QtCore import QPoint, Qt
-from PyQt6.QtGui import QColor, QPixmap
+from PyQt6.QtGui import QColor, QPalette, QPixmap
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication, QLabel, QScrollArea, QWidget
 
@@ -122,6 +122,36 @@ class MotionTests(unittest.TestCase):
         self.assertIsNone(PageTransition.play(area.viewport(), None, forward=True))
         motion.override = False
         self.assertIsNone(PageTransition.play(area.viewport(), before, forward=True))
+
+    def test_the_old_page_goes_at_once_and_only_the_new_one_fades_in(self):
+        area = QScrollArea()
+        area.resize(80, 60)
+        area.setWidgetResizable(True)
+        page = QWidget()  # Stands in for the real new rows, already final under the overlay.
+        page.setAutoFillBackground(True)
+        page_palette = page.palette()
+        page_palette.setColor(QPalette.ColorRole.Window, QColor("green"))
+        page.setPalette(page_palette)
+        area.setWidget(page)
+        area.show()
+        self.addCleanup(area.deleteLater)
+        self.addCleanup(area.hide)
+        self.app.processEvents()
+        after = QPixmap(area.viewport().size())
+        after.fill(QColor("red"))  # The new page as a picture; the old page was anything else.
+        overlay = PageTransition(area.viewport(), after, forward=True)
+        self.addCleanup(overlay.deleteLater)
+        overlay.animation.stop()
+        palette = overlay.palette()
+        palette.setColor(QPalette.ColorRole.Window, QColor("blue"))
+        overlay.setPalette(palette)
+        # At the start the old page is gone and the new has not arrived: the background covers the
+        # real rows, so neither the old picture nor the live rows (green) show, only the fill (blue).
+        overlay.set_progress(0.0)
+        self.assertEqual(area.viewport().grab().toImage().pixelColor(40, 30), QColor("blue"))
+        # By the end the new page has fully arrived.
+        overlay.set_progress(1.0)
+        self.assertEqual(area.viewport().grab().toImage().pixelColor(40, 30), QColor("red"))
 
 
 class BrowserMotionTests(unittest.TestCase):
