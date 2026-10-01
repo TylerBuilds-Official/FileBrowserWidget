@@ -1,29 +1,25 @@
 # Changelog
 
-## 0.1.3 — 2026-09-30
+## 0.1.2 -- 2026-09-30
 
-- With a cascade open, the next row lights the moment the pointer reaches it, and the row it left goes out at once, level and all. Qt hands every mouse event to the open menu, so the rows heard nothing until their own level opened; the cascade tells them now. Leaving the row for another row, a file, or the header closes its level immediately instead of when the next level was due, so only the start of a cascade waits the menu delay, never its end. A move aimed at the level itself keeps it, since reaching a lower item crosses the rows beneath.
-- A level's icons no longer make the menu size and repaint itself once per icon as they land. A level of a few hundred items held the UI thread for over a second after it opened, and the next row's hover waited on that; the items paint their icons from the cache instead, and only the rows that got one are painted again.
-- The list is laid out once when it is built rather than once per row, and a render that changes nothing no longer lays every row out twice and elides every name again. A 350-item folder opens in about a quarter of the time; a refresh of an unchanged folder costs next to nothing.
-- Rows no longer put every event through two Python filters: Enter, Space, a press, and a hidden row tell the panel directly.
-- A server typed alone, `\\server`, opens as the folder of its shares, as Explorer shows it, instead of "There is no such file or folder"; the shares are asked of the server on a worker. **Up** from a share goes to its server, and the breadcrumbs show the server before the share.
-- **Show favorites at the top** setting, on by default: in the folder the panel opens on, your favorites lead the list, wherever they live and in the order you starred them, so the start folder doubles as a launcher. Drilled into any other folder the list keeps its order; before, a starred item floated to the top of whatever folder it was in.
-- **Start in** gains a folder button beside the box: any folder of your own, picked in the folder dialog. The panel steps aside for the dialog and comes back with Settings open.
-- **Default sort** setting under Files: the order a folder opens in, by name either way, newest first, largest first, or folders first then by type. The sort you had picked in Filter carries over as your default. A sort picked in Filter now lasts until the panel reopens, and the dot on Filter marks a sort other than your default.
+- **Folders and drives** menu beside Filter: the Desktop, your Downloads, Documents, Pictures, Music, and Videos, then local drives, then mapped network drives, named the way Explorer names them, with Windows' own drive icons and a red X on a disconnected share. It opens at once; names and icons fill in behind it and are kept for next time.
+- **Address bar**: Ctrl+L, Alt+D, a click beside the breadcrumbs, or **Go to path** in that menu. Paste anything Explorer takes: quotes from Copy as path, %VARIABLES%, a bare drive letter, a relative path, `\\server\share`, or a server alone, which opens as the folder of its shares.
+- **Start in** setting: the Desktop, Downloads, Documents, a drive, any folder of your own through the folder button, or **Where I left off**. Replaces the old reopen toggle, which carries over. A start on a drive that is gone falls back to the Desktop.
+- **Default sort** setting: the order a folder opens in. A sort picked in Filter lasts until the panel reopens, and the dot on Filter marks a sort other than your default. The sort you had picked carries over as the default.
+- **Show favorites at the top** setting, on by default: in your start folder, favorites lead the list wherever they live, in the order you starred them. Drilled into any other folder the list keeps its order.
+- Drive roots are titled the way Explorer titles them and show free space: **Boot (C:)**, **412 GB free of 931 GB**.
+- Up from a share goes to its server, and the breadcrumbs show the server before the share.
+- Hover with a cascade open: the next row lights the moment the pointer reaches it, and the row you left goes out at once, level and all. Only a level's start waits the menu delay, never its end. A move aimed at the level keeps it while the pointer crosses the rows beneath.
+- A row no longer stays lit after the pointer has gone.
+- Cascade icons paint from the cache as they land instead of resizing and repainting the menu once per icon. A level of a few hundred items used to hold the UI thread for over a second after it opened.
+- The list is laid out once when it is built, not once per row, and a refresh of an unchanged folder costs next to nothing. A 350-item folder opens in about a quarter of the time.
+- Nothing touches a share or the shell on the UI thread anymore: folders, look-ups, deletes, drive names, icons, and free space all run on workers, and a wait of more than a moment says what it is waiting on. Folders on another machine are polled, not watched.
+- Switching folders fades the new list in place: no sideways slide, no doubled icons.
+- Clicking a row, or anywhere off the address bar, drops it back to breadcrumbs.
+- An empty card reader or disc drive reports an error instead of raising the "insert a disk" dialog.
+- Upgrading clears every file of the previous build first, old DLLs at the top of the folder included, and uninstalling leaves the folder empty.
 
-## 0.1.2 — 2026-09-28
-
-- **Folders and drives** menu, a new button beside Filter: the Desktop and your Downloads, Documents, Pictures, Music, and Videos, then local drives, then mapped network drives, named as Explorer names them (**Boot (C:)**, **Media (\\nas) (M:)**), with Windows' own drive icons and a red X for a disconnected share. It opens at once; labels and icons are read in the background and kept for next time.
-- **Address bar**: **Ctrl+L**, **Alt+D**, a click beside the breadcrumbs, or **Go to path…** in that menu turns the path into text to type or paste a place into, a share such as `\\server\share` included. Quotes from **Copy as path**, `%VARIABLES%`, a bare drive letter, and relative paths all work.
-- **Start in** setting: open on the Desktop (default), Downloads, Documents, a drive, or where you left off. A start on a drive that is no longer there falls back to the Desktop. Replaces the "Reopen where I left off" toggle, which carries over.
-- Drive roots are titled and show free space as Explorer does: **Boot (C:)**, **412 GB free of 931 GB**.
-- Folders are read on worker threads, so a slow or sleeping network share never freezes the panel. Opening an item, opening a favorite, deleting to the Recycle Bin, and reading a drive's name, icon, and space all happen off the UI thread; a wait of more than a moment says what it is doing.
-- Folders on another machine are refreshed on a timer and on each open rather than watched, since setting a watch would touch the share on the UI thread.
-- An empty card reader or disc drive reports an error instead of raising Windows' "insert a disk" dialog.
-- Switching folders fades the new list in place: the old page goes at once and the new fades up without a sideways slide, so icons never double or jitter mid-animation.
-- Clicking a row, a folder, or anywhere off the address bar drops it back to breadcrumbs; the input no longer keeps focus after a click away.
-
-## 0.1.1 — 2026-09-22
+## 0.1.1 -- 2026-09-22
 
 - Folder hover setting: rest on a folder to fan its contents out in cascading menus.
 - Cascade menus open to one side, edge to edge, and scroll instead of spreading into columns.

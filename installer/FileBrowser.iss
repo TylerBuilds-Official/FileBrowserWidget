@@ -1,9 +1,9 @@
 ; File Browser installer. Build with tools\build.ps1, or compile this directly with
-;   ISCC.exe /DMyAppVersion=0.1.3 installer\FileBrowser.iss
+;   ISCC.exe /DMyAppVersion=0.1.2 installer\FileBrowser.iss
 ; after PyInstaller has produced dist\FileBrowser and tools\build-icon.py has written installer\wizard.
 
 #ifndef MyAppVersion
-  #define MyAppVersion "0.1.3"
+  #define MyAppVersion "0.1.2"
 #endif
 #define MyAppName "File Browser"
 #define MyAppPublisher "TylerBuilds"
@@ -61,6 +61,21 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 ; Setup replaces the files it ships but never removes ones a newer build no longer has; the bundle
 ; folder is entirely ours, so clear it first and an upgrade leaves exactly the new build behind.
 Type: filesandordirs; Name: "{app}\_internal"
+; Anything a frozen build could leave at the top of the folder goes too, whatever layout an older
+; or a future build used: the exe itself is replaced, and the data of the app lives in HKCU.
+Type: files; Name: "{app}\*.dll"
+Type: files; Name: "{app}\*.pyd"
+Type: files; Name: "{app}\*.zip"
+Type: files; Name: "{app}\*.manifest"
+Type: files; Name: "{app}\*.old"
+Type: filesandordirs; Name: "{app}\PyQt6"
+Type: filesandordirs; Name: "{app}\lib"
+
+[UninstallDelete]
+; The uninstaller removes what it installed; the bundle folder and the app folder go with it,
+; so nothing of any build is left behind.
+Type: filesandordirs; Name: "{app}\_internal"
+Type: dirifempty; Name: "{app}"
 
 [Files]
 Source: "{#SourcePath}\..\dist\FileBrowser\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
